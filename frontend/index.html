@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DroidScout - Mobile Forensic Toolkit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        darkBase: '#0f172a',
+                        darkCard: '#1e293b',
+                        darkAccent: '#38bdf8',
+                        darkPrimary: '#0ea5e9'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            background-image: radial-gradient(circle at top right, #1e293b, #0f172a);
+            min-height: 100vh;
+        }
+        .glass {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .gradient-text {
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hover-lift {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #38bdf8;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="antialiased font-sans selection:bg-darkPrimary selection:text-white pb-12">
+    <!-- Navbar -->
+    <nav class="glass sticky top-0 z-50 shadow-lg mb-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-3">
+                    <svg class="w-8 h-8 text-darkAccent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    <span class="font-bold text-2xl tracking-tight gradient-text">DroidScout</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="adbStatus" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-800/50">
+                        <span class="w-2 h-2 mr-1.5 bg-red-400 rounded-full"></span>
+                        ADB Unknown
+                    </span>
+                    <button id="btnStartAdb" onclick="startAdb()" class="text-xs bg-darkCard hover:bg-slate-700 text-slate-300 font-medium py-1.5 px-3 rounded-md transition-colors border border-slate-600">Start Server</button>
+                    <button id="btnStopAdb" onclick="stopAdb()" class="text-xs bg-darkCard hover:bg-slate-700 text-slate-300 font-medium py-1.5 px-3 rounded-md transition-colors border border-slate-600">Stop Server</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+        
+        <!-- Devices Section -->
+        <section class="glass rounded-2xl p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-semibold text-white">Connected Devices</h2>
+                    <p class="text-sm text-slate-400 mt-1">Manage and acquire data from authorized devices.</p>
+                </div>
+                <button onclick="fetchDevices()" class="flex items-center gap-2 bg-darkPrimary hover:bg-sky-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-sky-500/20">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Refresh
+                </button>
+            </div>
+            
+            <div id="devicesContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Devices injected here -->
+            </div>
+        </section>
+
+        <!-- Records Section -->
+        <section class="glass rounded-2xl p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-semibold text-white">Acquisition Records</h2>
+                    <p class="text-sm text-slate-400 mt-1">Historical forensic data grouped by device.</p>
+                </div>
+                <button onclick="fetchRecords()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Refresh Records
+                </button>
+            </div>
+
+            <div id="recordsContainer" class="space-y-6">
+                <!-- Records injected here -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const API_BASE = '/api';
+
+        async function updateAdbStatus(status, isRunning) {
+            const el = document.getElementById('adbStatus');
+            if (isRunning) {
+                el.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/30 text-emerald-400 border border-emerald-800/50';
+                el.innerHTML = '<span class="w-2 h-2 mr-1.5 bg-emerald-400 rounded-full animate-pulse"></span>' + status;
+            } else {
+                el.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-800/50';
+                el.innerHTML = '<span class="w-2 h-2 mr-1.5 bg-red-400 rounded-full"></span>' + status;
+            }
+        }
+
+        async function startAdb() {
+            try {
+                const res = await fetch(`${API_BASE}/adb/start`, { method: 'POST' });
+                if (res.ok) fetchDevices();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function stopAdb() {
+            try {
+                const res = await fetch(`${API_BASE}/adb/stop`, { method: 'POST' });
+                if (res.ok) {
+                    document.getElementById('devicesContainer').innerHTML = '<p class="text-slate-400 col-span-full">ADB is stopped.</p>';
+                    updateAdbStatus('ADB Stopped', false);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function fetchDevices() {
+            const container = document.getElementById('devicesContainer');
+            container.innerHTML = '<div class="col-span-full flex justify-center py-8"><div class="loader"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/devices`);
+                if (!res.ok) throw new Error('ADB not running or error');
+                const data = await res.json();
+                
+                updateAdbStatus('ADB Running', true);
+                
+                if (data.devices.length === 0) {
+                    container.innerHTML = `
+                        <div class="col-span-full bg-darkCard/50 border border-slate-700/50 rounded-xl p-8 text-center">
+                            <svg class="w-12 h-12 text-slate-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                            <p class="text-slate-300 font-medium">No devices found</p>
+                            <p class="text-slate-500 text-sm mt-1">Connect an Android device and enable USB debugging.</p>
+                        </div>`;
+                    return;
+                }
+
+                container.innerHTML = data.devices.map(device => `
+                    <div class="bg-darkCard border border-slate-700 rounded-xl p-5 hover-lift relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-darkPrimary/10 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
+                        <div class="flex justify-between items-start mb-4 relative">
+                            <div>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 mb-2">Online</span>
+                                <h3 class="text-lg font-bold text-white tracking-tight">${device.manufacturer} ${device.model}</h3>
+                                <p class="text-xs font-mono text-slate-500 mt-0.5">ID: ${device.id}</p>
+                            </div>
+                            <svg class="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div class="mt-1 mb-4 border border-slate-700/60 rounded-lg p-3 bg-darkBase/30 space-y-2">
+                            <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Acquisition Options</p>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                <input type="checkbox" id="opt-user-${device.id}" checked style="accent-color:#0ea5e9">
+                                User Storage (Photos, Docs, Downloads)
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                <input type="checkbox" id="opt-app-${device.id}" checked style="accent-color:#0ea5e9">
+                                App Media (WhatsApp, Telegram, Signal)
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                <input type="checkbox" id="opt-meta-${device.id}" checked style="accent-color:#0ea5e9">
+                                Metadata &amp; Logcat
+                            </label>
+                        </div>
+                        <button onclick="acquireData('${device.id}')" id="btn-acq-${device.id}" class="w-full bg-gradient-to-r from-darkPrimary to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white py-2.5 rounded-lg font-medium transition-all shadow-lg shadow-indigo-500/25 flex justify-center items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            Acquire Evidence
+                        </button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                updateAdbStatus('ADB Stopped/Error', false);
+                container.innerHTML = '<p class="text-red-400 col-span-full">Failed to fetch devices. Is ADB running?</p>';
+            }
+        }
+
+        async function acquireData(device) {
+            const btn = document.getElementById(`btn-acq-${device}`);
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> <span id="status-text-' + device + '" class="ml-2">Starting...</span>';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            function resetBtn() {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+
+            try {
+                const options = {
+                    user_storage:    document.getElementById(`opt-user-${device}`)?.checked ?? true,
+                    app_media:       document.getElementById(`opt-app-${device}`)?.checked ?? true,
+                    metadata_logcat: document.getElementById(`opt-meta-${device}`)?.checked ?? true,
+                };
+
+                const res = await fetch(`${API_BASE}/acquire/${device}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(options)
+                });
+                const data = await res.json();
+                
+                if (!res.ok) {
+                    alert('Error: ' + data.detail);
+                    resetBtn();
+                    return;
+                }
+
+                const sessionId = data.session_id;
+                
+                // Poll for status
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch(`${API_BASE}/acquire/status/${sessionId}`);
+                        if (!statusRes.ok) return;
+                        
+                        const statusData = await statusRes.json();
+                        const statusTextEl = document.getElementById(`status-text-${device}`);
+                        
+                        if (statusTextEl) {
+                            statusTextEl.innerText = statusData.message || statusData.status;
+                        }
+                        
+                        if (statusData.status === 'completed') {
+                            clearInterval(pollInterval);
+                            alert('Acquisition complete: ' + sessionId);
+                            fetchRecords();
+                            resetBtn();
+                        } else if (statusData.status === 'failed') {
+                            clearInterval(pollInterval);
+                            alert('Acquisition failed: ' + statusData.message);
+                            resetBtn();
+                        }
+                    } catch (err) {
+                        console.error("Polling error", err);
+                    }
+                }, 1000); // Check every second
+
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+                resetBtn();
+            }
+        }
+
+        async function fetchRecords() {
+            const container = document.getElementById('recordsContainer');
+            container.innerHTML = '<div class="flex justify-center py-4"><div class="loader"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/records`);
+                const data = await res.json();
+                
+                if (Object.keys(data.records).length === 0) {
+                    container.innerHTML = '<p class="text-slate-400 italic">No historical records found.</p>';
+                    return;
+                }
+
+                container.innerHTML = Object.entries(data.records).map(([deviceId, sessions]) => {
+                    let deviceInfoStr = '';
+                    if (sessions.length > 0 && sessions[0].device_info) {
+                        const mfg = sessions[0].device_info.manufacturer || '';
+                        const mdl = sessions[0].device_info.model || '';
+                        if (mfg || mdl) {
+                            deviceInfoStr = ` - ${mfg} ${mdl}`;
+                        }
+                    }
+                    return `
+                    <div class="bg-darkBase/50 border border-slate-700/50 rounded-xl overflow-hidden">
+                        <div class="bg-slate-800/50 px-4 py-3 border-b border-slate-700/50">
+                            <h3 class="text-darkAccent font-medium font-mono">Device: ${deviceId}<span class="text-slate-400 font-sans ml-2 text-sm">${deviceInfoStr}</span></h3>
+                        </div>
+                        <div class="divide-y divide-slate-700/50">
+                            ${sessions.length === 0 ? '<p class="p-4 text-slate-500 text-sm">No sessions</p>' : sessions.map(s => `
+                                <div class="p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+                                    <div>
+                                        <p class="text-white font-medium">Session: ${s.session_id}</p>
+                                        <p class="text-sm text-slate-400 mt-1">
+                                            ${s.timestamp ? new Date(s.timestamp).toLocaleString() : 'Unknown Time'}
+                                            ${s.device_info ? ' &bull; ' + (s.device_info.manufacturer || '') + ' ' + (s.device_info.model || '') : ''}
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <div class="text-right mr-2">
+                                            <span class="text-xs text-slate-500 font-mono">${s.path}</span>
+                                        </div>
+                                        <a href="/api/reports/download/${deviceId}/${s.session_id}" title="Download ZIP" class="text-slate-500 hover:text-sky-400 p-1.5 rounded-md hover:bg-sky-400/10 transition-colors">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                        </a>
+                                        <button onclick="deleteRecord('${deviceId}', '${s.session_id}')" class="text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-400/10 transition-colors" title="Delete Record">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `}).join('');
+            } catch (e) {
+                container.innerHTML = '<p class="text-red-400">Failed to load records.</p>';
+            }
+        }
+
+        async function deleteRecord(deviceId, sessionId) {
+            if (!confirm('Are you sure you want to completely delete this acquisition record? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (res.ok) {
+                    fetchRecords();
+                } else {
+                    alert('Error deleting record: ' + data.detail);
+                }
+            } catch (e) {
+                alert('Request failed');
+            }
+        }
+
+        // Init
+        fetchDevices();
+        fetchRecords();
+    </script>
+</body>
+</html>
