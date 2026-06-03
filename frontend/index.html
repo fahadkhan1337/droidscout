@@ -12,80 +12,81 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
                     colors: {
-                        darkBase: '#0f172a',
-                        darkCard: '#1e293b',
-                        darkAccent: '#38bdf8',
-                        darkPrimary: '#0ea5e9'
+                        darkBase:    '#0d1117',
+                        darkSurface: '#161b22',
+                        darkCard:    '#1c2128',
+                        darkBorder:  '#30363d',
+                        darkAccent:  '#58a6ff',
+                        darkPrimary: '#1f6feb',
                     }
                 }
             }
         }
     </script>
     <style>
+        * { box-sizing: border-box; }
         body {
-            background-color: #0f172a;
-            color: #f8fafc;
-            background-image: radial-gradient(circle at top right, #1e293b, #0f172a);
+            background-color: #0d1117;
+            color: #e6edf3;
             min-height: 100vh;
         }
+        /* Flat surface — no blur, no gradient */
         .glass {
-            background: rgba(30, 41, 59, 0.6);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: #161b22;
+            border: 1px solid #30363d;
         }
-        .gradient-text {
-            background: linear-gradient(to right, #38bdf8, #818cf8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .hover-lift {
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .hover-lift:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-        }
+        .gradient-text { color: #58a6ff; }
+        .hover-lift { transition: border-color .15s; }
+        .hover-lift:hover { border-color: #58a6ff !important; }
         .loader {
-            border: 3px solid rgba(255,255,255,0.1);
-            border-top: 3px solid #38bdf8;
+            border: 2px solid #30363d;
+            border-top: 2px solid #58a6ff;
             border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
+            width: 20px; height: 20px;
+            animation: spin .8s linear infinite;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .step-bar { display: flex; align-items: center; gap: 0; margin-top: 10px; }
-        .step { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #64748b; }
-        .step .dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; flex-shrink: 0; transition: background 0.3s; }
-        .step.active { color: #38bdf8; }
-        .step.active .dot { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
-        .step.done { color: #34d399; }
-        .step.done .dot { background: #34d399; }
-        .step-line { flex: 1; height: 1px; background: #334155; min-width: 12px; }
-        .step-line.done { background: #34d399; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .step-bar { display:flex; align-items:center; gap:0; margin-top:10px; }
+        .step { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:#484f58; }
+        .step .dot { width:7px; height:7px; border-radius:50%; background:#21262d; flex-shrink:0; transition:background .25s; border:1px solid #30363d; }
+        .step.active { color:#58a6ff; }
+        .step.active .dot { background:#58a6ff; border-color:#58a6ff; }
+        .step.done { color:#3fb950; }
+        .step.done .dot { background:#3fb950; border-color:#3fb950; }
+        .step-line { flex:1; height:1px; background:#21262d; min-width:12px; }
+        .step-line.done { background:#3fb950; }
+        /* Modal overlay — solid dark, no blur */
+        .modal-overlay {
+            position:fixed; inset:0; z-index:50;
+            background:rgba(1,4,9,.85);
+            display:none; align-items:center; justify-content:center; padding:16px;
+        }
+        .modal-overlay.open { display:flex; }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width:5px; height:5px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+        ::-webkit-scrollbar-thumb:hover { background:#484f58; }
     </style>
 </head>
 <body class="antialiased font-sans selection:bg-darkPrimary selection:text-white pb-12">
     <!-- Navbar -->
-    <nav class="glass sticky top-0 z-50 shadow-lg mb-8">
+    <nav style="background:#161b22;border-bottom:1px solid #30363d;position:sticky;top:0;z-index:50;margin-bottom:24px;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
-                <div class="flex items-center gap-3">
-                    <svg class="w-8 h-8 text-darkAccent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    <span class="font-bold text-2xl tracking-tight gradient-text">DroidScout</span>
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center gap-2.5">
+                    <svg class="w-6 h-6" fill="none" stroke="#58a6ff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    <span class="font-bold text-lg tracking-tight text-white">Droid<span class="text-darkAccent">Scout</span></span>
                 </div>
-                <div class="flex items-center gap-4">
-                    <span id="adbStatus" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-800/50">
-                        <span class="w-2 h-2 mr-1.5 bg-red-400 rounded-full"></span>
+                <div class="flex items-center gap-3">
+                    <span id="adbStatus" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-900/20 text-red-400 border border-red-800/40">
+                        <span class="w-1.5 h-1.5 mr-1.5 bg-red-400 rounded-full"></span>
                         ADB Unknown
                     </span>
-                    <button id="btnStartAdb" onclick="startAdb()" class="text-xs bg-darkCard hover:bg-slate-700 text-slate-300 font-medium py-1.5 px-3 rounded-md transition-colors border border-slate-600">Start Server</button>
-                    <button id="btnStopAdb" onclick="stopAdb()" class="text-xs bg-darkCard hover:bg-slate-700 text-slate-300 font-medium py-1.5 px-3 rounded-md transition-colors border border-slate-600">Stop Server</button>
+                    <button id="btnStartAdb" onclick="startAdb()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;transition:.15s;" onmouseover="this.style.borderColor='#58a6ff';this.style.color='#e6edf3'" onmouseout="this.style.borderColor='#30363d';this.style.color='#8b949e'">Start ADB</button>
+                    <button id="btnStopAdb" onclick="stopAdb()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;transition:.15s;" onmouseover="this.style.borderColor='#f85149';this.style.color='#f85149'" onmouseout="this.style.borderColor='#30363d';this.style.color='#8b949e'">Stop ADB</button>
                 </div>
             </div>
         </div>
@@ -99,13 +100,13 @@
         </section>
 
         <!-- Devices Section -->
-        <section class="glass rounded-2xl p-6 shadow-2xl">
+        <section style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
             <div class="flex items-center justify-between mb-6">
                 <div>
-                    <h2 class="text-xl font-semibold text-white">Connected Devices</h2>
-                    <p class="text-sm text-slate-400 mt-1">Manage and acquire data from authorized devices.</p>
+                    <h2 class="text-lg font-semibold text-white">Connected Devices</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Manage and acquire data from authorized devices.</p>
                 </div>
-                <button onclick="fetchDevices()" class="flex items-center gap-2 bg-darkPrimary hover:bg-sky-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-sky-500/20">
+                <button onclick="fetchDevices()" class="flex items-center gap-2 bg-darkPrimary hover:bg-sky-500 text-white px-3 py-1.5 rounded font-medium text-sm transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                     Refresh
                 </button>
@@ -117,13 +118,13 @@
         </section>
 
         <!-- Records Section -->
-        <section class="glass rounded-2xl p-6 shadow-2xl">
+        <section style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
             <div class="flex items-center justify-between mb-4">
                 <div>
-                    <h2 class="text-xl font-semibold text-white">Acquisition Records</h2>
-                    <p class="text-sm text-slate-400 mt-1">Historical forensic data grouped by device.</p>
+                    <h2 class="text-lg font-semibold text-white">Acquisition Records</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Historical forensic data grouped by device.</p>
                 </div>
-                <button onclick="fetchRecords()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                <button onclick="fetchRecords()" class="flex items-center gap-2 text-sm" style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:6px 12px;border-radius:6px;cursor:pointer;transition:.15s;" onmouseover="this.style.borderColor='#484f58';this.style.color='#e6edf3'" onmouseout="this.style.borderColor='#30363d';this.style.color='#8b949e'">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                     Refresh
                 </button>
@@ -135,10 +136,10 @@
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <input id="recordSearch" type="text" placeholder="Search device or session ID…"
                         oninput="filterRecords()"
-                        class="w-full bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
+                        class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
                 </div>
                 <select id="recordStatusFilter" onchange="filterRecords()"
-                    class="bg-darkBase/60 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
+                    class="bg-darkSurface border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
                     <option value="">All Statuses</option>
                     <option value="completed">Completed</option>
                     <option value="failed">Failed</option>
@@ -153,9 +154,9 @@
     </main>
 
     <!-- Communication Viewer Modal (Contacts / Calls / SMS) -->
-    <div id="commModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
-        <div class="glass rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-700/80 flex flex-col" style="max-height:88vh">
-            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+    <div id="commModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(1,4,9,0.88)">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;width:100%;max-width:900px;max-height:88vh;display:flex;flex-direction:column;">
+            <div class="flex items-center justify-between p-5 border-b border-darkBorder flex-shrink-0">
                 <div class="flex items-center gap-3">
                     <div id="commModalIcon" class="w-9 h-9 rounded-full flex items-center justify-center"></div>
                     <div>
@@ -173,18 +174,18 @@
                     </button>
                 </div>
             </div>
-            <div class="p-3 border-b border-slate-700/30 flex-shrink-0">
+            <div class="p-3 border-b border-darkBorder flex-shrink-0">
                 <input id="commSearch" type="text" placeholder="Filter within results…" oninput="filterCommTable()"
-                    class="w-full bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-500">
+                    class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-500">
             </div>
             <div id="commModalBody" class="overflow-y-auto flex-1 p-4"></div>
         </div>
     </div>
 
     <!-- Evidence Search Modal -->
-    <div id="searchModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
-        <div class="glass rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-700/80 flex flex-col" style="max-height:85vh">
-            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+    <div id="searchModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(1,4,9,0.88)">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;width:100%;max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
+            <div class="flex items-center justify-between p-5 border-b border-darkBorder flex-shrink-0">
                 <div>
                     <h3 class="text-white font-bold text-lg">Search Evidence</h3>
                     <p id="searchModalSub" class="text-xs text-slate-400 font-mono mt-0.5"></p>
@@ -193,11 +194,11 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <div class="p-4 border-b border-slate-700/30 flex-shrink-0 flex gap-2">
+            <div class="p-4 border-b border-darkBorder flex-shrink-0 flex gap-2">
                 <input type="hidden" id="searchDeviceId">
                 <input type="hidden" id="searchSessionId">
                 <input id="searchQuery" type="text" placeholder="Enter keyword, phone number, or phrase…"
-                    class="flex-1 bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500"
+                    class="flex-1 bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500"
                     onkeydown="if(event.key==='Enter') runSearch()">
                 <button onclick="runSearch()" class="bg-darkPrimary hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Search</button>
             </div>
@@ -206,9 +207,9 @@
     </div>
 
     <!-- Acquisition Log Modal -->
-    <div id="logModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
-        <div class="glass rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-700/80 flex flex-col" style="max-height:85vh">
-            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+    <div id="logModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(1,4,9,0.88)">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;width:100%;max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
+            <div class="flex items-center justify-between p-5 border-b border-darkBorder flex-shrink-0">
                 <div>
                     <h3 class="text-white font-bold text-lg">Acquisition Log</h3>
                     <p id="logModalSession" class="text-xs text-slate-400 font-mono mt-0.5"></p>
@@ -222,8 +223,8 @@
     </div>
 
     <!-- Edit Case Metadata Modal -->
-    <div id="caseModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
-        <div class="glass rounded-2xl shadow-2xl w-full max-w-md border border-slate-700/80 p-6">
+    <div id="caseModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(1,4,9,0.88)">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;width:100%;max-width:440px;padding:24px;">
             <div class="flex items-center justify-between mb-5">
                 <h3 class="text-white font-bold text-lg">Edit Case Metadata</h3>
                 <button onclick="closeCaseModal()" class="text-slate-500 hover:text-white p-1 transition-colors">
@@ -234,11 +235,11 @@
             <input type="hidden" id="caseModalSessionId">
             <div class="space-y-3 mb-5">
                 <input id="caseModalCaseNum" type="text" placeholder="Case Number"
-                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                    class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
                 <input id="caseModalInv" type="text" placeholder="Investigator Name"
-                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                    class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
                 <textarea id="caseModalNotes" placeholder="Notes" rows="3"
-                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+                    class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 resize-none"></textarea>
             </div>
             <div class="flex gap-3">
                 <button onclick="saveCaseMetadata()" class="flex-1 bg-darkPrimary hover:bg-sky-500 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">Save</button>
@@ -248,8 +249,8 @@
     </div>
 
     <!-- Acquisition Complete Modal -->
-    <div id="summaryModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.7);backdrop-filter:blur(4px)">
-        <div class="glass rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-700/80">
+    <div id="summaryModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(1,4,9,0.88)">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;width:100%;max-width:440px;padding:24px;">
             <div class="flex items-center justify-between mb-5">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
@@ -265,20 +266,20 @@
                 </button>
             </div>
             <div class="grid grid-cols-3 gap-3 mb-5">
-                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                <div class="bg-darkSurface rounded-xl p-3 text-center border border-darkBorder">
                     <div id="modalFiles" class="text-2xl font-bold text-sky-400">—</div>
                     <div class="text-xs text-slate-400 mt-1">Files</div>
                 </div>
-                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                <div class="bg-darkSurface rounded-xl p-3 text-center border border-darkBorder">
                     <div id="modalSize" class="text-2xl font-bold text-indigo-400">—</div>
                     <div class="text-xs text-slate-400 mt-1">Size (MB)</div>
                 </div>
-                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                <div class="bg-darkSurface rounded-xl p-3 text-center border border-darkBorder">
                     <div id="modalFlags" class="text-2xl font-bold text-yellow-400">—</div>
                     <div class="text-xs text-slate-400 mt-1">Flags</div>
                 </div>
             </div>
-            <div id="modalDevice" class="text-sm text-slate-400 bg-darkBase/40 rounded-lg px-3 py-2 mb-5 font-mono border border-slate-700/30"></div>
+            <div id="modalDevice" class="text-sm text-slate-400 bg-darkBase/40 rounded-lg px-3 py-2 mb-5 font-mono border border-darkBorder"></div>
             <div class="flex gap-3">
                 <a id="modalViewBtn" href="#" target="_blank"
                    class="flex-1 flex items-center justify-center gap-2 bg-darkPrimary hover:bg-sky-500 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">
@@ -344,7 +345,7 @@
 
                 if (data.devices.length === 0) {
                     container.innerHTML = `
-                        <div class="col-span-full bg-darkCard/50 border border-slate-700/50 rounded-xl p-8 text-center">
+                        <div class="col-span-full bg-darkCard border border-darkBorder rounded-xl p-8 text-center">
                             <svg class="w-12 h-12 text-slate-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                             <p class="text-slate-300 font-medium">No devices found</p>
                             <p class="text-slate-500 text-sm mt-1">Connect an Android device and enable USB debugging.</p>
@@ -353,7 +354,7 @@
                 }
 
                 container.innerHTML = data.devices.map(device => `
-                    <div class="bg-darkCard border border-slate-700 rounded-xl p-5 hover-lift relative overflow-hidden group">
+                    <div class="hover-lift relative group" style="background:#1c2128;border:1px solid #30363d;border-radius:8px;padding:18px;">
                         <div class="absolute top-0 right-0 w-20 h-20 bg-darkPrimary/10 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
                         <div class="flex justify-between items-start mb-4 relative">
                             <div>
@@ -392,13 +393,13 @@
                         <div class="mb-3 border border-slate-700/60 rounded-lg p-3 bg-darkBase/30 space-y-2">
                             <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Case Metadata</p>
                             <input id="opt-case-${device.id}" type="text" placeholder="Case Number (optional)"
-                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
+                                class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
                             <input id="opt-inv-${device.id}" type="text" placeholder="Investigator Name (optional)"
-                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
+                                class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
                             <textarea id="opt-notes-${device.id}" placeholder="Notes (optional)" rows="2"
-                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+                                class="w-full bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 resize-none"></textarea>
                         </div>
-                        <button onclick="acquireData('${device.id}')" id="btn-acq-${device.id}" class="w-full bg-gradient-to-r from-darkPrimary to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white py-2.5 rounded-lg font-medium transition-all shadow-lg shadow-indigo-500/25 flex justify-center items-center gap-2">
+                        <button onclick="acquireData('${device.id}')" id="btn-acq-${device.id}" class="w-full text-white py-2 rounded font-medium transition-colors flex justify-center items-center gap-2 text-sm" style="background:#1f6feb;border:1px solid #388bfd;" onmouseover="this.style.background='#388bfd'" onmouseout="this.style.background='#1f6feb'">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                             Acquire Evidence
                         </button>
@@ -564,8 +565,8 @@
                 const di = sessions.find(s => s.device_info)?.device_info;
                 const deviceLabel = di ? `${di.manufacturer || ''} ${di.model || ''}`.trim() : '';
                 return `
-                <div class="bg-darkBase/50 border border-slate-700/50 rounded-xl overflow-hidden">
-                    <div class="bg-slate-800/50 px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:visible;">
+                    <div class="bg-slate-800/50 px-4 py-3 border-b border-darkBorder flex items-center justify-between">
                         <div>
                             <span class="text-darkAccent font-medium font-mono">${deviceId}</span>
                             ${deviceLabel ? `<span class="text-slate-400 text-sm ml-2">${deviceLabel}</span>` : ''}
@@ -752,9 +753,9 @@
                     { label: 'Flags',      value: d.total_flags,   color: d.total_flags > 0 ? '#f85149' : '#3fb950' },
                 ];
                 document.getElementById('statsBar').innerHTML = items.map(i => `
-                    <div class="glass rounded-xl p-3 text-center border border-slate-700/30">
-                        <div class="text-xl font-bold" style="color:${i.color}">${i.value}</div>
-                        <div class="text-xs text-slate-400 mt-0.5">${i.label}</div>
+                    <div style="background:#1c2128;border:1px solid #30363d;border-radius:6px;padding:10px 12px;text-align:center;">
+                        <div style="font-size:18px;font-weight:700;color:${i.color};line-height:1.2;">${i.value}</div>
+                        <div style="font-size:11px;color:#8b949e;margin-top:2px;">${i.label}</div>
                     </div>`).join('');
             } catch {}
         }
@@ -824,7 +825,7 @@
                 document.getElementById('commModalBody').innerHTML = '<div class="text-slate-500 text-center py-8 italic">No records found.</div>';
                 return;
             }
-            const rows = filtered.map(r => `<tr class="hover:bg-slate-800/30 border-b border-slate-700/30">${cfg.cols.map(c => `<td class="px-3 py-2 text-slate-300 text-xs max-w-xs truncate" title="${r[c]||''}">${r[c]||'—'}</td>`).join('')}</tr>`).join('');
+            const rows = filtered.map(r => `<tr class="hover:bg-slate-800/30 border-b border-darkBorder">${cfg.cols.map(c => `<td class="px-3 py-2 text-slate-300 text-xs max-w-xs truncate" title="${r[c]||''}">${r[c]||'—'}</td>`).join('')}</tr>`).join('');
             document.getElementById('commModalBody').innerHTML =
                 `<div class="text-xs text-slate-500 mb-2">${filtered.length} record${filtered.length!==1?'s':''}</div>
                 <div class="overflow-x-auto"><table class="w-full text-left border-collapse">
@@ -1019,9 +1020,9 @@
             const audioExts = ['.mp3','.aac','.wav','.ogg','.m4a','.opus','.flac','.amr'];
             const textExts  = ['.txt','.log','.json','.xml','.csv','.md','.cfg','.conf','.ini'];
             if (imageExts.includes(ext)) {
-                pane.innerHTML = `<img src="${url}" class="max-w-full max-h-full object-contain rounded shadow-lg" style="max-height:calc(80vh - 180px)" onerror="this.parentElement.innerHTML='<p class=\\'text-red-400 text-sm\\'>Could not load image.</p>'">`;
+                pane.innerHTML = `<img src="${url}" class="max-w-full max-h-full object-contain rounded " style="max-height:calc(80vh - 180px)" onerror="this.parentElement.innerHTML='<p class=\\'text-red-400 text-sm\\'>Could not load image.</p>'">`;
             } else if (videoExts.includes(ext)) {
-                pane.innerHTML = `<video controls autoplay class="max-w-full rounded shadow-lg" style="max-height:calc(80vh - 180px)"><source src="${url}" type="${item.media_type||'video/mp4'}">Your browser does not support video.</video>`;
+                pane.innerHTML = `<video controls autoplay class="max-w-full rounded " style="max-height:calc(80vh - 180px)"><source src="${url}" type="${item.media_type||'video/mp4'}">Your browser does not support video.</video>`;
             } else if (audioExts.includes(ext)) {
                 pane.innerHTML = `<div class="flex flex-col items-center gap-4 w-full px-8">
                     <svg class="w-20 h-20 text-sky-500/40" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
@@ -1066,7 +1067,7 @@
             const r = await fetch(`/api/explorer/${_exDevice}/${_exSession}/flags`);
             const data = await r.json();
             if (!data.flags.length) { body.innerHTML = `<p class="text-slate-500 text-sm text-center py-8">No flagged files yet.</p>`; return; }
-            const sevCls = {HIGH:'text-red-400 bg-red-900/20 border-red-700/30', MEDIUM:'text-yellow-400 bg-yellow-900/20 border-yellow-700/30', LOW:'text-blue-400 bg-blue-900/20 border-blue-700/30', INFO:'text-slate-400 bg-slate-800/40 border-slate-700/30'};
+            const sevCls = {HIGH:'text-red-400 bg-red-900/20 border-red-700/30', MEDIUM:'text-yellow-400 bg-yellow-900/20 border-yellow-700/30', LOW:'text-blue-400 bg-blue-900/20 border-blue-700/30', INFO:'text-slate-400 bg-slate-800/40 border-darkBorder'};
             body.innerHTML = data.flags.map(f => `
                 <div class="flex items-start gap-3 border ${sevCls[f.severity]||sevCls.INFO} rounded-lg p-3 mb-2">
                     <span class="flex-shrink-0 text-xs font-bold uppercase px-1.5 py-0.5 rounded ${sevCls[f.severity]||sevCls.INFO} border">${f.severity}</span>
