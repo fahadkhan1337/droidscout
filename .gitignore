@@ -23,6 +23,11 @@ ENV/
 output/
 backend/output/
 
+# ── Database (contains acquired device data — NEVER commit) ──────────────────
+*.db
+*.sqlite
+*.sqlite3
+
 # ── IDE / Editor ─────────────────────────────────────────────────────────────
 .vscode/
 .idea/
