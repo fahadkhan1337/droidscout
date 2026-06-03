@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DroidScout — Flags</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.5}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+
+/* Header */
+.hdr{background:#161b22;border-bottom:2px solid #f85149;padding:0 24px;display:flex;align-items:center;gap:12px;height:52px;position:sticky;top:0;z-index:50}
+.brand{font-size:15px;font-weight:800;color:#e6edf3}
+.brand em{color:#e3b341;font-style:normal}
+.hdr-sep{width:1px;height:24px;background:#30363d}
+.hdr-back{display:flex;align-items:center;gap:5px;color:#8b949e;text-decoration:none;font-size:12px;border:1px solid #30363d;padding:4px 10px;transition:.15s;margin-right:auto}
+.hdr-back:hover{color:#e6edf3;border-color:#484f58}
+.hdr-title{font-size:13px;font-weight:700;color:#f85149}
+
+/* Toolbar */
+.toolbar{background:#161b22;border-bottom:1px solid #21262d;padding:10px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.toolbar-stat{font-size:11px;color:#8b949e;background:#1c2128;border:1px solid #30363d;padding:3px 10px;display:flex;align-items:center;gap:5px}
+.toolbar-stat strong{color:#e6edf3}
+.toolbar-stat.red strong{color:#f85149}
+.toolbar-stat.yellow strong{color:#e3b341}
+.toolbar-stat.green strong{color:#3fb950}
+.toolbar-right{margin-left:auto;display:flex;gap:8px}
+.btn-sm{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;font-weight:600;border:1px solid #30363d;color:#8b949e;background:transparent;cursor:pointer;text-decoration:none;transition:.15s}
+.btn-sm:hover{border-color:#484f58;color:#e6edf3}
+.btn-sm.accent{border-color:#e3b341;color:#e3b341}
+.btn-sm.accent:hover{background:#e3b34120}
+
+/* Filters */
+.filters{padding:12px 24px;background:#0d1117;border-bottom:1px solid #21262d;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.filter-lbl{font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.6px;margin-right:2px}
+.chip{font-size:11px;font-weight:600;padding:3px 10px;border:1px solid #30363d;color:#8b949e;background:transparent;cursor:pointer;transition:.15s}
+.chip:hover,.chip.active{color:#e6edf3;border-color:#484f58;background:#21262d}
+.chip.HIGH.active{border-color:#f85149;color:#f85149;background:#2d0f0f}
+.chip.MEDIUM.active{border-color:#e3b341;color:#e3b341;background:#2e2200}
+.chip.LOW.active{border-color:#58a6ff;color:#58a6ff;background:#0d1f3e}
+.search-box{padding:4px 10px;border:1px solid #30363d;background:#1c2128;color:#e6edf3;font-size:11px;outline:none;width:200px}
+.search-box:focus{border-color:#484f58}
+.sep{width:1px;height:20px;background:#30363d}
+
+/* Table */
+.wrap{padding:20px 24px}
+.tbl-wrap{border:1px solid #21262d;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead tr{background:#161b22;border-bottom:1px solid #30363d}
+th{padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#484f58;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid #21262d;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.acked td{opacity:.45}
+tr.acked .flag-desc{text-decoration:line-through;color:#484f58}
+tr:hover td{background:#161b22}
+
+/* Badges */
+.sev{font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;padding:2px 6px;border:1px solid;white-space:nowrap}
+.sev.HIGH{color:#f85149;border-color:#f85149;background:#2d0f0f}
+.sev.MEDIUM{color:#e3b341;border-color:#e3b341;background:#2e2200}
+.sev.LOW{color:#58a6ff;border-color:#58a6ff;background:#0d1f3e}
+.sev.INFO{color:#8b949e;border-color:#30363d;background:#1c2128}
+.kind-badge{font-size:9px;font-weight:700;padding:2px 6px;border:1px solid}
+.kind-badge.forensic{color:#bc8cff;border-color:#bc8cff;background:#1e0d3e}
+.kind-badge.investigator{color:#e3b341;border-color:#e3b341;background:#2e2200}
+.mono{font-family:monospace;font-size:10px;color:#484f58;word-break:break-all;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ack-chip{font-size:9px;font-weight:700;padding:2px 6px;border:1px solid #3fb950;color:#3fb950;background:#0d2810;white-space:nowrap}
+.pending-chip{font-size:9px;color:#484f58;padding:2px 6px;border:1px solid #21262d}
+
+/* Actions */
+.act-btn{font-size:10px;font-weight:600;padding:2px 8px;border:1px solid #30363d;color:#484f58;background:transparent;cursor:pointer;transition:.15s;white-space:nowrap}
+.act-btn:hover{border-color:#3fb950;color:#3fb950}
+.act-btn.unack:hover{border-color:#f85149;color:#f85149}
+.act-link{font-size:10px;color:#58a6ff;text-decoration:none;padding:2px 4px}
+.act-link:hover{text-decoration:underline}
+
+/* Group header */
+.group-hd{background:#1c2128;border-bottom:1px solid #30363d;border-top:1px solid #30363d}
+.group-hd td{padding:6px 12px;font-size:11px;font-weight:700;color:#8b949e;font-family:monospace}
+
+/* Empty */
+.empty{text-align:center;padding:60px 0;color:#484f58}
+.spinner{width:24px;height:24px;border:2px solid #21262d;border-top-color:#f85149;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Ack modal */
+.modal-bg{display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.7);align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#161b22;border:1px solid #30363d;padding:20px;width:380px}
+.modal h3{font-size:14px;font-weight:700;margin-bottom:12px;color:#e6edf3}
+.modal input,.modal textarea{width:100%;padding:6px 10px;background:#1c2128;border:1px solid #30363d;color:#e6edf3;font-size:12px;outline:none;margin-bottom:10px}
+.modal input:focus,.modal textarea:focus{border-color:#484f58}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <a href="/" class="hdr-back">
+    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+    Back
+  </a>
+  <div class="brand">Droid<em>Scout</em></div>
+  <div class="hdr-sep"></div>
+  <div class="hdr-title">All Flags</div>
+</header>
+
+<!-- Toolbar -->
+<div class="toolbar" id="toolbar">
+  <div class="toolbar-stat red"><span>HIGH</span><strong id="countHigh">—</strong></div>
+  <div class="toolbar-stat yellow"><span>MEDIUM</span><strong id="countMed">—</strong></div>
+  <div class="toolbar-stat"><span>LOW</span><strong id="countLow">—</strong></div>
+  <div class="toolbar-stat"><span>Total</span><strong id="countTotal">—</strong></div>
+  <div class="toolbar-stat green"><span>Acknowledged</span><strong id="countAcked">—</strong></div>
+  <div class="toolbar-right">
+    <button class="btn-sm" onclick="exportCsv()">↓ Export CSV</button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filters">
+  <span class="filter-lbl">Severity</span>
+  <button class="chip HIGH active" data-filter="sev" data-val="HIGH" onclick="toggleChip(this)">HIGH</button>
+  <button class="chip MEDIUM active" data-filter="sev" data-val="MEDIUM" onclick="toggleChip(this)">MEDIUM</button>
+  <button class="chip LOW active" data-filter="sev" data-val="LOW" onclick="toggleChip(this)">LOW</button>
+  <button class="chip active" data-filter="sev" data-val="INFO" onclick="toggleChip(this)">INFO</button>
+  <div class="sep"></div>
+  <span class="filter-lbl">Kind</span>
+  <button class="chip active" data-filter="kind" data-val="forensic" onclick="toggleChip(this)">Forensic</button>
+  <button class="chip active" data-filter="kind" data-val="investigator" onclick="toggleChip(this)">Investigator</button>
+  <div class="sep"></div>
+  <span class="filter-lbl">Status</span>
+  <button class="chip active" data-filter="ack" data-val="open" onclick="toggleChip(this)">Open</button>
+  <button class="chip active" data-filter="ack" data-val="acked" onclick="toggleChip(this)">Acknowledged</button>
+  <div class="sep"></div>
+  <input class="search-box" id="searchBox" placeholder="Search description, file, device…" oninput="renderTable()">
+</div>
+
+<div class="wrap">
+  <div id="tblWrap"><div style="display:flex;justify-content:center;padding:40px"><div class="spinner"></div></div></div>
+</div>
+
+<!-- Ack modal -->
+<div class="modal-bg" id="ackModal">
+  <div class="modal">
+    <h3>Acknowledge Flag</h3>
+    <p id="ackDesc" style="font-size:11px;color:#8b949e;margin-bottom:12px;word-break:break-all;"></p>
+    <input id="ackBy" placeholder="Your name / investigator ID (optional)">
+    <textarea id="ackNote" rows="3" placeholder="Note (optional)"></textarea>
+    <div class="modal-foot">
+      <button class="btn-sm" onclick="closeAckModal()">Cancel</button>
+      <button class="btn-sm accent" onclick="submitAck()">Acknowledge</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allFlags = [];
+let activeSev  = new Set(['HIGH','MEDIUM','LOW','INFO']);
+let activeKind = new Set(['forensic','investigator']);
+let activeAck  = new Set(['open','acked']);
+let pendingAck = null;
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', loadFlags);
+
+async function loadFlags() {
+  try {
+    const r = await fetch('/api/flags/all');
+    const d = await r.json();
+    allFlags = d.flags || [];
+    updateStats();
+    renderTable();
+  } catch(e) {
+    document.getElementById('tblWrap').innerHTML =
+      `<div class="empty"><p>Failed to load flags.</p></div>`;
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('countHigh').textContent  = allFlags.filter(f=>f.severity==='HIGH').length;
+  document.getElementById('countMed').textContent   = allFlags.filter(f=>f.severity==='MEDIUM').length;
+  document.getElementById('countLow').textContent   = allFlags.filter(f=>f.severity==='LOW').length;
+  document.getElementById('countTotal').textContent = allFlags.length;
+  document.getElementById('countAcked').textContent = allFlags.filter(f=>f.acknowledged).length;
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function toggleChip(btn) {
+  const filter = btn.dataset.filter;
+  const val    = btn.dataset.val;
+  const set    = filter === 'sev' ? activeSev : (filter === 'kind' ? activeKind : activeAck);
+  if (set.has(val)) { set.delete(val); btn.classList.remove('active'); }
+  else              { set.add(val);    btn.classList.add('active');    }
+  renderTable();
+}
+
+function getFiltered() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  return allFlags.filter(f => {
+    if (!activeSev.has(f.severity))  return false;
+    if (!activeKind.has(f.kind))     return false;
+    const ackState = f.acknowledged ? 'acked' : 'open';
+    if (!activeAck.has(ackState))    return false;
+    if (q) {
+      const hay = [f.description, f.file, f.device_id, f.session_id, f.flag_type, f.case_number].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const flags = getFiltered();
+  const wrap  = document.getElementById('tblWrap');
+
+  if (!flags.length) {
+    wrap.innerHTML = `<div class="empty"><p>No flags match the current filters.</p></div>`;
+    return;
+  }
+
+  // Group by device + session
+  const groups = {};
+  flags.forEach(f => {
+    const gk = f.device_id + '::' + f.session_id;
+    if (!groups[gk]) groups[gk] = {device_id: f.device_id, session_id: f.session_id, case_number: f.case_number, flags: []};
+    groups[gk].flags.push(f);
+  });
+
+  let html = `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>Kind</th><th>Severity</th><th>Type</th>
+      <th style="min-width:200px">Description</th>
+      <th>File</th><th>Status</th><th>Actions</th>
+    </tr></thead><tbody>`;
+
+  for (const gk of Object.keys(groups)) {
+    const g = groups[gk];
+    const ts = (allFlags.find(f=>f.session_id===g.session_id)?.timestamp||'').substring(0,10);
+    html += `<tr class="group-hd"><td colspan="7">
+      <span style="color:#e3b341;">${esc(g.device_id)}</span>
+      <span style="color:#484f58;margin:0 8px">·</span>
+      <span>${g.session_id.substring(0,14)}…</span>
+      ${g.case_number ? `<span style="color:#484f58;margin-left:8px;">${esc(g.case_number)}</span>` : ''}
+      ${ts ? `<span style="color:#484f58;margin-left:8px;font-size:10px;font-weight:400;">${ts}</span>` : ''}
+      <span style="margin-left:10px;font-size:10px;color:#30363d;">${g.flags.length} flag${g.flags.length!==1?'s':''}</span>
+      <a href="/api/reports/view/${esc(g.device_id)}/${esc(g.session_id)}" target="_blank" class="act-link" style="margin-left:8px;">Report ↗</a>
+    </td></tr>`;
+
+    g.flags.forEach(f => {
+      const fname = f.file ? f.file.split('/').pop() : '';
+      html += `<tr class="${f.acknowledged ? 'acked' : ''}" id="row-${gk}-${esc(f.flag_type)}-${encodeURIComponent(f.file||'')}">
+        <td><span class="kind-badge ${f.kind}">${f.kind==='forensic'?'Auto':'Manual'}</span></td>
+        <td><span class="sev ${f.severity}">${f.severity}</span></td>
+        <td style="font-size:10px;color:#8b949e;font-family:monospace;white-space:nowrap">${esc(f.flag_type)}</td>
+        <td><div class="flag-desc">${esc(f.description)}</div></td>
+        <td><div class="mono" title="${esc(f.file||'')}">${esc(fname)}</div></td>
+        <td>
+          ${f.acknowledged
+            ? `<span class="ack-chip">✓ Reviewed</span>${f.ack_by ? `<div style="font-size:10px;color:#484f58;margin-top:2px;">${esc(f.ack_by)}</div>` : ''}`
+            : `<span class="pending-chip">Pending</span>`}
+        </td>
+        <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+          ${f.kind === 'forensic' && !f.acknowledged
+            ? `<button class="act-btn" onclick="openAckModal(${JSON.stringify(f).replace(/"/g,'&quot;')})">Acknowledge</button>`
+            : ''}
+          ${f.kind === 'forensic' && f.acknowledged
+            ? `<button class="act-btn unack" onclick="doUnack(${JSON.stringify({device_id:f.device_id,session_id:f.session_id,flag_key:f.flag_key}).replace(/"/g,'&quot;')})">Reopen</button>`
+            : ''}
+          ${f.file
+            ? `<a href="/explorer/${esc(f.device_id)}/${esc(f.session_id)}" target="_blank" class="act-link">Explorer ↗</a>`
+            : ''}
+        </td>
+      </tr>`;
+    });
+  }
+  html += '</tbody></table></div>';
+  wrap.innerHTML = html;
+}
+
+// ── Acknowledge ───────────────────────────────────────────────────────────────
+function openAckModal(flagObj) {
+  pendingAck = flagObj;
+  document.getElementById('ackDesc').textContent = `${flagObj.flag_type} — ${flagObj.description}`;
+  document.getElementById('ackBy').value   = '';
+  document.getElementById('ackNote').value = '';
+  document.getElementById('ackModal').classList.add('open');
+}
+function closeAckModal() {
+  pendingAck = null;
+  document.getElementById('ackModal').classList.remove('open');
+}
+
+async function submitAck() {
+  if (!pendingAck || !pendingAck.flag_key) return;
+  const by   = document.getElementById('ackBy').value.trim();
+  const note = document.getElementById('ackNote').value.trim();
+  await fetch(`/api/flags/${pendingAck.device_id}/${pendingAck.session_id}/acknowledge`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({flag_key: pendingAck.flag_key, acknowledged_by: by, note})
+  });
+  // Update local state
+  const f = allFlags.find(x => x.session_id === pendingAck.session_id && x.flag_key === pendingAck.flag_key);
+  if (f) { f.acknowledged = true; f.ack_by = by; f.ack_note = note; }
+  closeAckModal();
+  updateStats();
+  renderTable();
+}
+
+async function doUnack(obj) {
+  await fetch(`/api/flags/${obj.device_id}/${obj.session_id}/acknowledge?flag_key=${encodeURIComponent(obj.flag_key)}`, {method:'DELETE'});
+  const f = allFlags.find(x => x.session_id === obj.session_id && x.flag_key === obj.flag_key);
+  if (f) { f.acknowledged = false; f.ack_by = null; f.ack_note = null; }
+  updateStats();
+  renderTable();
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCsv() {
+  const flags = getFiltered();
+  const rows  = [['Kind','Device','Session','CaseNumber','Severity','Type','Description','File','Acknowledged','AckBy','AckNote','Timestamp']];
+  flags.forEach(f => rows.push([
+    f.kind, f.device_id, f.session_id, f.case_number||'',
+    f.severity, f.flag_type, f.description, f.file||'',
+    f.acknowledged?'Yes':'No', f.ack_by||'', f.ack_note||'', f.timestamp||''
+  ]));
+  const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), {href:url, download:'droidscout_flags.csv'});
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ── Util ──────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DroidScout — Device Timeline</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.5}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+
+/* Header */
+.hdr{background:#161b22;border-bottom:2px solid #e3b341;padding:0 24px;display:flex;align-items:center;gap:14px;height:52px;position:sticky;top:0;z-index:50}
+.brand{font-size:15px;font-weight:800;color:#e6edf3}
+.brand em{color:#e3b341;font-style:normal}
+.hdr-sep{width:1px;height:24px;background:#30363d}
+.hdr-device{font-size:12px;color:#8b949e;font-family:monospace}
+.hdr-back{display:flex;align-items:center;gap:5px;color:#8b949e;text-decoration:none;font-size:12px;border:1px solid #30363d;padding:4px 10px;transition:.15s;margin-right:auto}
+.hdr-back:hover{color:#e6edf3;border-color:#484f58}
+
+/* Layout */
+.wrap{max-width:1200px;margin:0 auto;padding:24px}
+
+/* Timeline vertical rail */
+.tl-rail{position:relative;padding-left:40px}
+.tl-rail::before{content:'';position:absolute;left:12px;top:0;bottom:0;width:2px;background:#21262d}
+
+/* Timeline node */
+.tl-node{position:relative;margin-bottom:24px}
+.tl-dot{position:absolute;left:-34px;top:14px;width:14px;height:14px;border-radius:50%;border:2px solid #30363d;background:#0d1117;z-index:1;cursor:pointer;transition:.15s}
+.tl-dot.completed{background:#3fb950;border-color:#3fb950}
+.tl-dot.failed{background:#f85149;border-color:#f85149}
+.tl-dot.running{background:#58a6ff;border-color:#58a6ff}
+.tl-dot.selected{box-shadow:0 0 0 3px #e3b341;border-color:#e3b341}
+
+/* Session card */
+.sess-card{background:#161b22;border:1px solid #30363d;cursor:pointer;transition:border-color .15s}
+.sess-card:hover{border-color:#484f58}
+.sess-card.selected{border-color:#e3b341}
+.sess-hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #21262d}
+.sess-ts{font-family:monospace;font-size:11px;color:#8b949e}
+.sess-status{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border:1px solid}
+.sess-status.completed{color:#3fb950;border-color:#3fb950;background:#0d2810}
+.sess-status.failed{color:#f85149;border-color:#f85149;background:#2d0f0f}
+.sess-status.running{color:#58a6ff;border-color:#58a6ff;background:#0d1f3e}
+.sess-case{font-size:11px;color:#e3b341;margin-left:auto;font-family:monospace}
+.sess-body{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid #21262d}
+.sess-stat{padding:10px 16px;border-right:1px solid #21262d}
+.sess-stat:last-child{border-right:none}
+.ss-val{font-size:20px;font-weight:800;color:#e6edf3;font-family:monospace;line-height:1}
+.ss-val.flag-val{color:#f85149}
+.ss-val.clean-val{color:#3fb950}
+.ss-lbl{font-size:10px;color:#484f58;margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
+.sess-foot{padding:8px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn-sm{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;font-weight:600;border:1px solid #30363d;color:#8b949e;text-decoration:none;background:transparent;cursor:pointer;transition:.15s}
+.btn-sm:hover{border-color:#484f58;color:#e6edf3}
+.btn-sm.accent{border-color:#e3b341;color:#e3b341}
+.btn-sm.accent:hover{background:#e3b34120}
+.notes{font-size:11px;color:#484f58;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Compare panel */
+.cmp-panel{background:#161b22;border:1px solid #e3b341;padding:20px;margin-bottom:28px}
+.cmp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.cmp-title{font-size:13px;font-weight:700;color:#e3b341}
+.cmp-close{background:none;border:none;color:#484f58;cursor:pointer;font-size:16px}
+.cmp-close:hover{color:#e6edf3}
+.cmp-sessions{display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+.cmp-badge{font-size:10px;font-family:monospace;color:#8b949e;background:#1c2128;border:1px solid #30363d;padding:3px 8px}
+.cmp-arrow{color:#30363d;font-size:18px}
+.diff-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px}
+@media(max-width:700px){.diff-grid{grid-template-columns:1fr}}
+.diff-card{background:#1c2128;border:1px solid #30363d;padding:14px}
+.diff-label{font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+.diff-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #21262d;font-size:12px}
+.diff-row:last-child{border-bottom:none}
+.diff-key{color:#8b949e}
+.diff-val{font-family:monospace;color:#e6edf3}
+.diff-val.up{color:#3fb950}
+.diff-val.down{color:#f85149}
+.diff-val.same{color:#8b949e}
+.flag-list{max-height:200px;overflow-y:auto}
+.flag-item{padding:6px 0;border-bottom:1px solid #21262d;font-size:11px}
+.flag-item:last-child{border-bottom:none}
+.fl-type{font-weight:700;color:#e3b341}
+.fl-path{font-family:monospace;font-size:10px;color:#484f58;margin-top:2px;word-break:break-all}
+
+/* Chart row */
+.chart-area{background:#161b22;border:1px solid #30363d;padding:16px;margin-bottom:24px}
+.chart-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#484f58;margin-bottom:12px}
+.ch-wrap{position:relative;height:180px}
+
+/* Empty */
+.empty{text-align:center;padding:60px 0;color:#484f58}
+.spinner{width:24px;height:24px;border:2px solid #21262d;border-top-color:#58a6ff;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Select hint */
+.select-hint{font-size:11px;color:#484f58;padding:4px 0}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <a href="/" class="hdr-back">
+    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+    Back
+  </a>
+  <div class="brand">Droid<em>Scout</em></div>
+  <div class="hdr-sep"></div>
+  <div class="hdr-device" id="hdrDevice">Loading…</div>
+</header>
+
+<div class="wrap">
+
+  <!-- Stats chart -->
+  <div class="chart-area" id="chartArea" style="display:none">
+    <div class="chart-lbl">Acquisition History — Files &amp; Flags Over Time</div>
+    <div class="ch-wrap"><canvas id="trendChart"></canvas></div>
+  </div>
+
+  <!-- Compare panel (hidden until 2 sessions selected) -->
+  <div class="cmp-panel" id="cmpPanel" style="display:none">
+    <div class="cmp-hd">
+      <span class="cmp-title">Session Comparison</span>
+      <button class="cmp-close" onclick="clearCompare()">✕</button>
+    </div>
+    <div class="cmp-sessions" id="cmpSessions"></div>
+    <div id="cmpBody"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Select hint -->
+  <div class="select-hint" id="selectHint"></div>
+
+  <!-- Timeline -->
+  <div id="tlContainer"><div style="display:flex;justify-content:center;padding:40px"><div class="spinner"></div></div></div>
+
+</div>
+
+<script>
+const path  = location.pathname.split('/');
+const DEVICE = path[path.length - 1] || new URLSearchParams(location.search).get('device') || '';
+
+let sessions    = [];
+let selected    = [];    // up to 2 session_ids for compare
+let trendChart  = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('hdrDevice').textContent = DEVICE;
+  document.title = `Timeline — ${DEVICE}`;
+  await loadTimeline();
+});
+
+// ── Load ─────────────────────────────────────────────────────────────────────
+async function loadTimeline() {
+  try {
+    const r = await fetch(`/api/timeline/${DEVICE}`);
+    if (!r.ok) throw new Error('Not found');
+    const data = await r.json();
+    sessions = data.sessions || [];
+    renderTimeline();
+    renderChart();
+  } catch(e) {
+    document.getElementById('tlContainer').innerHTML =
+      `<div class="empty"><p>No sessions found for this device.</p></div>`;
+  }
+}
+
+// ── Render timeline ───────────────────────────────────────────────────────────
+function renderTimeline() {
+  const container = document.getElementById('tlContainer');
+  if (!sessions.length) {
+    container.innerHTML = `<div class="empty"><p>No acquisition sessions yet.</p></div>`;
+    return;
+  }
+  const hint = document.getElementById('selectHint');
+  hint.textContent = sessions.length > 1
+    ? `Click any session to select it for comparison (select 2 to compare).`
+    : `One session recorded — acquire again to enable comparison.`;
+
+  container.innerHTML = '';
+  const rail = document.createElement('div');
+  rail.className = 'tl-rail';
+
+  sessions.forEach((s, idx) => {
+    const node = document.createElement('div');
+    node.className = 'tl-node';
+    node.id = 'node-' + s.session_id;
+
+    const isSelected = selected.includes(s.session_id);
+    const flagVal = s.total_flags > 0 ? `<span class="ss-val flag-val">${s.total_flags}</span>` : `<span class="ss-val clean-val">0</span>`;
+    const flagBreak = Object.entries(s.flags_by_sev).filter(([,v])=>v>0)
+      .map(([k,v]) => `<span style="font-size:10px;color:${{'HIGH':'#f85149','MEDIUM':'#e3b341','LOW':'#58a6ff'}[k]};margin-left:6px;">${k}:${v}</span>`).join('');
+
+    const catSummary = Object.entries(s.categories).slice(0,4)
+      .map(([k,v])=>`<span style="font-size:10px;color:#484f58;margin-right:8px;">${k}: <strong style="color:#8b949e">${v}</strong></span>`).join('');
+
+    node.innerHTML = `
+      <div class="tl-dot ${s.status}${isSelected?' selected':''}" onclick="toggleSelect('${s.session_id}')"></div>
+      <div class="sess-card${isSelected?' selected':''}" onclick="toggleSelect('${s.session_id}')">
+        <div class="sess-hd">
+          <span class="sess-status ${s.status}">${s.status}</span>
+          <span class="sess-ts">${s.timestamp ? s.timestamp.replace('T',' ').substring(0,19) : '—'}</span>
+          ${s.case_number ? `<span class="sess-case">${esc(s.case_number)}</span>` : ''}
+          ${s.investigator ? `<span style="font-size:10px;color:#484f58;margin-left:8px;">${esc(s.investigator)}</span>` : ''}
+          <span style="font-size:10px;color:#30363d;margin-left:auto;font-family:monospace;">#${idx+1}</span>
+        </div>
+        <div class="sess-body">
+          <div class="sess-stat"><div class="ss-val">${s.total_files.toLocaleString()}</div><div class="ss-lbl">Files</div></div>
+          <div class="sess-stat"><div class="ss-val">${s.total_size_mb}</div><div class="ss-lbl">MB</div></div>
+          <div class="sess-stat">${flagVal}<div class="ss-lbl">Flags${flagBreak}</div></div>
+          <div class="sess-stat"><div class="ss-val" style="font-size:13px;color:#484f58;word-break:break-all;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.session_id.substring(0,12)}…</div><div class="ss-lbl">Session ID</div></div>
+        </div>
+        <div style="padding:8px 16px;border-bottom:1px solid #21262d;min-height:28px;">${catSummary}</div>
+        <div class="sess-foot">
+          ${s.notes ? `<span class="notes" title="${esc(s.notes)}">${esc(s.notes)}</span>` : ''}
+          <a href="/api/reports/view/${DEVICE}/${s.session_id}" target="_blank" class="btn-sm">Report</a>
+          <a href="/explorer/${DEVICE}/${s.session_id}" target="_blank" class="btn-sm">Explorer</a>
+          <button onclick="event.stopPropagation();toggleSelect('${s.session_id}')" class="btn-sm${isSelected?' accent':''}">
+            ${isSelected ? '✓ Selected' : 'Select'}
+          </button>
+        </div>
+      </div>`;
+    rail.appendChild(node);
+  });
+  container.appendChild(rail);
+}
+
+// ── Select / Compare ──────────────────────────────────────────────────────────
+function toggleSelect(sessionId) {
+  if (selected.includes(sessionId)) {
+    selected = selected.filter(s => s !== sessionId);
+  } else {
+    if (selected.length >= 2) selected.shift();
+    selected.push(sessionId);
+  }
+  renderTimeline();
+  if (selected.length === 2) {
+    loadComparison(selected[0], selected[1]);
+  } else {
+    document.getElementById('cmpPanel').style.display = 'none';
+  }
+}
+
+function clearCompare() {
+  selected = [];
+  document.getElementById('cmpPanel').style.display = 'none';
+  renderTimeline();
+}
+
+async function loadComparison(s1, s2) {
+  const panel = document.getElementById('cmpPanel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  document.getElementById('cmpBody').innerHTML = '<div class="spinner" style="margin:20px auto"></div>';
+
+  const ts = t => sessions.find(s=>s.session_id===t)?.timestamp?.substring(0,19)||t.substring(0,12);
+  document.getElementById('cmpSessions').innerHTML =
+    `<span class="cmp-badge">#${sessions.findIndex(s=>s.session_id===s1)+1} ${ts(s1)}</span>
+     <span class="cmp-arrow">→</span>
+     <span class="cmp-badge">#${sessions.findIndex(s=>s.session_id===s2)+1} ${ts(s2)}</span>`;
+
+  try {
+    const r = await fetch(`/api/timeline/${DEVICE}/compare?s1=${s1}&s2=${s2}`);
+    const data = await r.json();
+    renderComparison(data);
+  } catch(e) {
+    document.getElementById('cmpBody').innerHTML = `<p style="color:#f85149;font-size:12px;">Comparison failed — sessions may have no analysis data yet.</p>`;
+  }
+}
+
+function renderComparison(data) {
+  const sd = data.summary_diff;
+  function diffVal(before, after, el) {
+    const diff = after - before;
+    const sign = diff > 0 ? '+' : '';
+    const cls  = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'same');
+    return `<span class="diff-val ${cls}">${after.toLocaleString()} <small style="opacity:.7">(${sign}${diff.toLocaleString()})</small></span>`;
+  }
+
+  // Category diff rows
+  const catRows = Object.entries(data.category_diff).map(([cat, d]) => {
+    const diff = d.after - d.before;
+    const sign = diff > 0 ? '+' : '';
+    const cls  = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'same');
+    return `<div class="diff-row"><span class="diff-key">${cat}</span>
+      <span class="diff-val ${cls}">${d.after} <small style="opacity:.6">(${sign}${diff})</small></span></div>`;
+  }).join('');
+
+  // New flags
+  const newFlagRows = data.new_flags.length
+    ? data.new_flags.map(f=>`<div class="flag-item">
+        <div class="fl-type">+ ${f.type||''} — ${f.description||''}</div>
+        ${f.file?`<div class="fl-path">${f.file}</div>`:''}
+      </div>`).join('')
+    : '<div style="color:#3fb950;font-size:11px;padding:8px 0;">No new flags</div>';
+
+  const resFlagRows = data.resolved_flags.length
+    ? data.resolved_flags.map(f=>`<div class="flag-item">
+        <div style="font-weight:700;color:#3fb950;">− ${f.type||''} — ${f.description||''}</div>
+        ${f.file?`<div class="fl-path">${f.file}</div>`:''}
+      </div>`).join('')
+    : '<div style="color:#8b949e;font-size:11px;padding:8px 0;">No resolved flags</div>';
+
+  document.getElementById('cmpBody').innerHTML = `
+    <div class="diff-grid">
+      <div class="diff-card">
+        <div class="diff-label">Summary Changes</div>
+        <div class="diff-row"><span class="diff-key">Total Files</span>${diffVal(sd.files.before, sd.files.after)}</div>
+        <div class="diff-row"><span class="diff-key">Size (MB)</span>${diffVal(sd.size_mb.before, sd.size_mb.after)}</div>
+        <div class="diff-row"><span class="diff-key">Forensic Flags</span>${diffVal(sd.flags.before, sd.flags.after)}</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-label">New Flags (${data.new_flags.length})</div>
+        <div class="flag-list">${newFlagRows}</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-label">Resolved Flags (${data.resolved_flags.length})</div>
+        <div class="flag-list">${resFlagRows}</div>
+      </div>
+    </div>
+    <div class="diff-card">
+      <div class="diff-label">Category Changes</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;">${catRows}</div>
+    </div>`;
+}
+
+// ── Trend chart ───────────────────────────────────────────────────────────────
+function renderChart() {
+  if (sessions.length < 2) return;
+  document.getElementById('chartArea').style.display = 'block';
+  const labels = sessions.map((s,i) => `#${i+1} ${(s.timestamp||'').substring(0,10)}`);
+  const files  = sessions.map(s => s.total_files);
+  const flags  = sessions.map(s => s.total_flags);
+  const sizes  = sessions.map(s => s.total_size_mb);
+
+  Chart.defaults.color = '#484f58';
+  Chart.defaults.borderColor = '#21262d';
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Files', data: files, borderColor: '#58a6ff', backgroundColor: 'transparent',
+          pointBackgroundColor: '#58a6ff', tension: .3, pointRadius: 4 },
+        { label: 'Flags', data: flags, borderColor: '#f85149', backgroundColor: 'transparent',
+          pointBackgroundColor: '#f85149', tension: .3, pointRadius: 4, yAxisID: 'y2' },
+        { label: 'Size MB', data: sizes, borderColor: '#e3b341', backgroundColor: 'transparent',
+          pointBackgroundColor: '#e3b341', tension: .3, pointRadius: 4, borderDash: [4,3] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y:  { beginAtZero: true, grid: { color: '#21262d' }, ticks: { font: { size: 10 } } },
+        y2: { beginAtZero: true, position: 'right', grid: { display: false },
+               ticks: { font: { size: 10 }, color: '#f85149' } },
+        x:  { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 30 } },
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 }, padding: 16, boxWidth: 12 } }
+      }
+    }
+  });
+}
+
+// ── Util ──────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -81,6 +81,12 @@
                     <span class="font-bold text-lg tracking-tight text-white">Droid<span class="text-darkAccent">Scout</span></span>
                 </div>
                 <div class="flex items-center gap-3">
+                    <a href="/flags" target="_blank"
+                       style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #f85149;color:#f85149;background:transparent;text-decoration:none;transition:.15s;"
+                       onmouseover="this.style.background='#f8514920'" onmouseout="this.style.background='transparent'">
+                       <svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
+                       All Flags
+                    </a>
                     <span id="adbStatus" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-900/20 text-red-400 border border-red-800/40">
                         <span class="w-1.5 h-1.5 mr-1.5 bg-red-400 rounded-full"></span>
                         ADB Unknown
@@ -571,7 +577,16 @@
                             <span class="text-darkAccent font-medium font-mono">${deviceId}</span>
                             ${deviceLabel ? `<span class="text-slate-400 text-sm ml-2">${deviceLabel}</span>` : ''}
                         </div>
-                        <span class="text-xs text-slate-500">${sessions.length} session${sessions.length !== 1 ? 's' : ''}</span>
+                        <div class="flex items-center gap-2">
+                            ${sessions.length > 1 ? `
+                            <a href="/timeline/${deviceId}" target="_blank"
+                               style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border:1px solid #e3b341;color:#e3b341;background:transparent;text-decoration:none;transition:.15s;"
+                               onmouseover="this.style.background='#e3b34120'" onmouseout="this.style.background='transparent'">
+                               <svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
+                               Timeline
+                            </a>` : ''}
+                            <span class="text-xs text-slate-500">${sessions.length} session${sessions.length !== 1 ? 's' : ''}</span>
+                        </div>
                     </div>
                     <div class="divide-y divide-slate-700/50">
                         ${sessions.map(s => {

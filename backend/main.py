@@ -22,7 +22,13 @@ from modules.hashing import HashingModule
 from modules.analysis import AnalysisModule
 from modules.reporting import ReportingModule
 from fastapi.staticfiles import StaticFiles
-from database import init_db, create_session, update_session, get_session, get_all_records, delete_session, update_case_metadata, upsert_file_flag, remove_file_flag, get_file_flags, delete_file_flags_for_session
+from database import (
+    init_db, create_session, update_session, get_session, get_all_records,
+    delete_session, update_case_metadata,
+    upsert_file_flag, remove_file_flag, get_file_flags, delete_file_flags_for_session,
+    get_all_file_flags,
+    acknowledge_flag, unacknowledge_flag, get_acknowledgments, get_all_acknowledgments,
+)
 from modules.parser import parse_contacts, parse_calls, parse_sms, contacts_to_csv, calls_to_csv, sms_to_csv, search_evidence
 from fastapi.responses import StreamingResponse
 import io
@@ -136,7 +142,9 @@ def run_acquisition_pipeline(session_id: str, device_id: str, output_dir: str, o
         status_cb("Generating forensic reports...")
 
         # Reporting
-        ReportingModule(output_dir=output_dir, status_callback=status_cb).generate_all()
+        rm = ReportingModule(output_dir=output_dir, status_callback=status_cb)
+        rm.file_flags = get_file_flags(session_id)
+        rm.generate_all()
 
         device_info = manifest.get("device_info", {})
         update_session(
@@ -363,6 +371,110 @@ def get_stats():
         "total_flags":     total_flags,
     }
 
+def _load_session_analysis(device_id: str, session_id: str) -> dict:
+    """Load analysis.json for a session, return {} if missing."""
+    p = os.path.join("output", device_id, session_id, "reports", "analysis.json")
+    if not os.path.exists(p):
+        # Try path from DB
+        rec = get_session(session_id)
+        if rec and rec.get("output_dir"):
+            p2 = os.path.join(rec["output_dir"], "reports", "analysis.json")
+            if os.path.exists(p2):
+                p = p2
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+@app.get("/timeline/{device_id}")
+def timeline_page(device_id: str):
+    page = os.path.join(frontend_dir, "timeline.html")
+    if not os.path.exists(page):
+        raise HTTPException(status_code=404, detail="Timeline page not found.")
+    return FileResponse(page, media_type="text/html")
+
+@app.get("/api/timeline/{device_id}")
+def get_device_timeline(device_id: str):
+    """All sessions for a device with summary stats for the timeline."""
+    records = get_all_records()
+    sessions = records.get(device_id, [])
+    if not sessions:
+        raise HTTPException(status_code=404, detail="Device not found.")
+    result = []
+    for s in sorted(sessions, key=lambda x: x.get("timestamp", ""), reverse=False):
+        analysis = _load_session_analysis(device_id, s["session_id"])
+        summary  = analysis.get("summary", {})
+        flags    = analysis.get("forensic_flags", [])
+        flag_by_sev = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        for fl in flags:
+            sev = fl.get("severity", "LOW")
+            flag_by_sev[sev] = flag_by_sev.get(sev, 0) + 1
+        result.append({
+            "session_id":   s["session_id"],
+            "status":       s.get("status", ""),
+            "timestamp":    s.get("timestamp", ""),
+            "case_number":  s.get("case_number", ""),
+            "investigator": s.get("investigator", ""),
+            "notes":        s.get("notes", ""),
+            "total_files":  summary.get("total_files", 0),
+            "total_size_mb":round(summary.get("total_size_mb", 0), 2),
+            "total_flags":  len(flags),
+            "flags_by_sev": flag_by_sev,
+            "categories":   {k: v.get("count", 0) for k, v in analysis.get("file_categories", {}).items()},
+        })
+    return {"device_id": device_id, "sessions": result}
+
+@app.get("/api/timeline/{device_id}/compare")
+def compare_sessions(device_id: str, s1: str, s2: str):
+    """Compare two sessions — files added/removed, flag changes."""
+    def load(sid):
+        analysis = _load_session_analysis(device_id, sid)
+        manifest_p = None
+        rec = get_session(sid)
+        if rec and rec.get("output_dir"):
+            mp = os.path.join(rec["output_dir"], "evidence", "acquisition_manifest.json")
+            if os.path.exists(mp):
+                try:
+                    with open(mp, encoding="utf-8") as f:
+                        manifest_p = json.load(f)
+                except: pass
+        return analysis, manifest_p
+
+    a1, m1 = load(s1)
+    a2, m2 = load(s2)
+
+    def files_set(analysis):
+        cats = analysis.get("file_categories", {})
+        out = {}
+        for cat, data in cats.items():
+            out[cat] = data.get("count", 0)
+        return out
+
+    cats1, cats2 = files_set(a1), files_set(a2)
+    all_cats = set(cats1) | set(cats2)
+    cat_diff = {c: {"before": cats1.get(c, 0), "after": cats2.get(c, 0)} for c in sorted(all_cats)}
+
+    flags1 = {(f.get("type",""), f.get("file","")): f for f in a1.get("forensic_flags", [])}
+    flags2 = {(f.get("type",""), f.get("file","")): f for f in a2.get("forensic_flags", [])}
+    new_flags     = [v for k, v in flags2.items() if k not in flags1]
+    resolved_flags= [v for k, v in flags1.items() if k not in flags2]
+
+    s1_sum = a1.get("summary", {})
+    s2_sum = a2.get("summary", {})
+    return {
+        "session_1": s1, "session_2": s2,
+        "summary_diff": {
+            "files":   {"before": s1_sum.get("total_files", 0),   "after": s2_sum.get("total_files", 0)},
+            "size_mb": {"before": round(s1_sum.get("total_size_mb", 0), 2),
+                        "after":  round(s2_sum.get("total_size_mb", 0), 2)},
+            "flags":   {"before": len(flags1), "after": len(flags2)},
+        },
+        "category_diff":   cat_diff,
+        "new_flags":       new_flags[:30],
+        "resolved_flags":  resolved_flags[:30],
+    }
+
 MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
@@ -451,6 +563,113 @@ def clear_file_flag(device_id: str, session_id: str, path: str):
 def list_file_flags(device_id: str, session_id: str):
     return {"flags": get_file_flags(session_id)}
 
+# ── Forensic flag acknowledgments ────────────────────────────────────────────
+
+class AckBody(BaseModel):
+    flag_key:        str
+    acknowledged_by: str = ""
+    note:            str = ""
+
+@app.post("/api/flags/{device_id}/{session_id}/acknowledge")
+def ack_flag(device_id: str, session_id: str, body: AckBody):
+    acknowledge_flag(session_id, device_id, body.flag_key,
+                     body.acknowledged_by, body.note)
+    return {"status": "ok"}
+
+@app.delete("/api/flags/{device_id}/{session_id}/acknowledge")
+def unack_flag(device_id: str, session_id: str, flag_key: str):
+    unacknowledge_flag(session_id, flag_key)
+    return {"status": "ok"}
+
+@app.get("/api/flags/{device_id}/{session_id}/acknowledgments")
+def list_acks(device_id: str, session_id: str):
+    acks = get_acknowledgments(session_id)
+    return {"acknowledgments": {a["flag_key"]: a for a in acks}}
+
+# ── Centralized flags view ────────────────────────────────────────────────────
+
+@app.get("/flags")
+def flags_page():
+    page = os.path.join(frontend_dir, "flags.html")
+    if not os.path.exists(page):
+        raise HTTPException(status_code=404, detail="Flags page not found.")
+    return FileResponse(page, media_type="text/html")
+
+@app.get("/api/flags/all")
+def all_flags_view():
+    """All forensic + investigator flags across every session, with ack status."""
+    records = get_all_records()
+    all_acks = {(a["session_id"], a["flag_key"]): a for a in get_all_acknowledgments()}
+    all_iflags = get_all_file_flags()
+
+    result = []
+    for device_id, sessions in records.items():
+        for s in sessions:
+            sid = s["session_id"]
+            analysis = _load_session_analysis(device_id, sid)
+            forensic_flags = analysis.get("forensic_flags", [])
+            for fl in forensic_flags:
+                key = fl.get("type", "") + "::" + (fl.get("file") or "")
+                ack = all_acks.get((sid, key))
+                result.append({
+                    "kind":          "forensic",
+                    "device_id":     device_id,
+                    "session_id":    sid,
+                    "timestamp":     s.get("timestamp", ""),
+                    "case_number":   s.get("case_number", ""),
+                    "severity":      fl.get("severity", "LOW"),
+                    "flag_type":     fl.get("type", ""),
+                    "description":   fl.get("description", ""),
+                    "file":          fl.get("file"),
+                    "flag_key":      key,
+                    "acknowledged":  bool(ack),
+                    "ack_by":        ack["acknowledged_by"] if ack else None,
+                    "ack_note":      ack["note"] if ack else None,
+                    "ack_at":        ack["created_at"] if ack else None,
+                })
+
+    for f in all_iflags:
+        result.append({
+            "kind":        "investigator",
+            "device_id":   f["device_id"],
+            "session_id":  f["session_id"],
+            "timestamp":   f["created_at"],
+            "case_number": "",
+            "severity":    f["severity"],
+            "flag_type":   "INVESTIGATOR_FLAG",
+            "description": f.get("note") or f["file_path"].split("/")[-1],
+            "file":        f["file_path"],
+            "flag_key":    None,
+            "acknowledged": False,
+            "ack_by": None, "ack_note": None, "ack_at": None,
+        })
+
+    result.sort(key=lambda x: (x["severity"] not in ("HIGH",), x["severity"] != "MEDIUM", x["timestamp"]), reverse=False)
+    return {"flags": result}
+
+@app.post("/api/explorer/{device_id}/{session_id}/regenerate-report")
+def regenerate_report_with_flags(device_id: str, session_id: str, background_tasks: BackgroundTasks):
+    """Re-generate the HTML report to bake in the latest investigator file flags."""
+    session_path = os.path.join("output", device_id, session_id)
+    if not os.path.exists(session_path):
+        rec = get_session(session_id)
+        if rec and rec.get("output_dir"):
+            session_path = rec["output_dir"]
+    if not os.path.exists(session_path):
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    def _regen():
+        try:
+            rm = ReportingModule(output_dir=session_path)
+            rm.file_flags = get_file_flags(session_id)
+            rm.load_data()
+            rm.generate_html()
+        except Exception as e:
+            print(f"[!] Report regen failed: {e}")
+
+    background_tasks.add_task(_regen)
+    return {"status": "started", "message": "Report regeneration started."}
+
 @app.post("/api/reanalyze/{device_id}/{session_id}")
 def reanalyze_session(device_id: str, session_id: str, background_tasks: BackgroundTasks):
     """Re-run analysis + reporting on already-acquired evidence."""
@@ -464,7 +683,9 @@ def reanalyze_session(device_id: str, session_id: str, background_tasks: Backgro
             update_session(session_id, "running", "Re-analyzing evidence...")
             AnalysisModule(output_dir=session_path).analyze()
             update_session(session_id, "running", "Regenerating reports...")
-            ReportingModule(output_dir=session_path).generate_all()
+            rm = ReportingModule(output_dir=session_path)
+            rm.file_flags = get_file_flags(session_id)
+            rm.generate_all()
             update_session(session_id, "completed", "Re-analysis complete.")
         except Exception as e:
             update_session(session_id, "failed", f"Re-analysis error: {str(e)}")
@@ -534,13 +755,24 @@ VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".3gp", ".webm"}
 AUDIO_EXTS = {".mp3", ".aac", ".wav", ".ogg", ".m4a", ".opus", ".flac", ".amr"}
 MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS | AUDIO_EXTS
 
+APP_PATHS = {
+    "whatsapp":  ["whatsapp"],
+    "telegram":  ["telegram"],
+    "instagram": ["instagram"],
+    "signal":    ["signal", "thoughtcrime"],
+    "snapchat":  ["snapchat", "com.snap"],
+    "tiktok":    ["tiktok", "com.zhiliaoapp"],
+    "facebook":  ["facebook", "com.facebook"],
+}
+
 @app.get("/api/explorer/{device_id}/{session_id}/media")
-def list_media_files(device_id: str, session_id: str, kind: str = "all"):
+def list_media_files(device_id: str, session_id: str, kind: str = "all", app: str = ""):
     """Recursively walk evidence directory and return all media files."""
     base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
     if not os.path.isdir(base):
         return {"files": []}
     flags = {f["file_path"]: f for f in get_file_flags(session_id)}
+    app_keywords = [kw.lower() for kw in APP_PATHS.get(app.lower(), [])] if app else []
     result = []
     for root, dirs, files in os.walk(base):
         dirs[:] = sorted(dirs)
@@ -553,6 +785,9 @@ def list_media_files(device_id: str, session_id: str, kind: str = "all"):
             if kind == "audio"  and ext not in AUDIO_EXTS: continue
             full = os.path.join(root, name)
             rel = os.path.relpath(full, base).replace("\\", "/")
+            rel_lower = rel.lower()
+            if app_keywords and not any(kw in rel_lower for kw in app_keywords):
+                continue
             try: size = os.path.getsize(full)
             except: size = 0
             cat = "image" if ext in IMAGE_EXTS else ("video" if ext in VIDEO_EXTS else "audio")
@@ -563,6 +798,62 @@ def list_media_files(device_id: str, session_id: str, kind: str = "all"):
                 "flag": flags.get(rel),
             })
     return {"files": result, "total": len(result)}
+
+@app.get("/api/explorer/{device_id}/{session_id}/allfiles")
+def list_all_files(device_id: str, session_id: str, sort: str = "size", limit: int = 500):
+    """Return all files in evidence dir sorted by size (desc) or modified time (desc)."""
+    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    if not os.path.isdir(base):
+        return {"files": []}
+    flags = {f["file_path"]: f for f in get_file_flags(session_id)}
+    result = []
+    for root, _, files in os.walk(base):
+        for name in files:
+            full = os.path.join(root, name)
+            rel  = os.path.relpath(full, base).replace("\\", "/")
+            try:
+                st   = os.stat(full)
+                size = st.st_size
+                mtime = st.st_mtime
+            except:
+                size, mtime = 0, 0
+            ext = os.path.splitext(name)[1].lower()
+            result.append({
+                "name": name,
+                "path": rel,
+                "ext":  ext,
+                "size": size,
+                "size_mb": round(size / 1_048_576, 3),
+                "mtime": mtime,
+                "modified": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else "",
+                "media_type": MEDIA_TYPES.get(ext, ""),
+                "flag": flags.get(rel),
+            })
+    if sort == "recent":
+        result.sort(key=lambda x: x["mtime"], reverse=True)
+    else:
+        result.sort(key=lambda x: x["size"], reverse=True)
+    return {"files": result[:limit], "total": len(result), "sort": sort}
+
+@app.get("/api/explorer/{device_id}/{session_id}/apps")
+def list_app_counts(device_id: str, session_id: str):
+    """Return per-app media file counts for the gallery filter bar."""
+    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    if not os.path.isdir(base):
+        return {"apps": {}}
+    counts = {}
+    for root, _, files in os.walk(base):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in MEDIA_EXTS:
+                continue
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, base).replace("\\", "/").lower()
+            for app_key, keywords in APP_PATHS.items():
+                if any(kw in rel for kw in keywords):
+                    counts[app_key] = counts.get(app_key, 0) + 1
+                    break
+    return {"apps": counts}
 
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 

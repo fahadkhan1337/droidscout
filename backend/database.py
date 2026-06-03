@@ -60,6 +60,18 @@ def init_db():
                 UNIQUE(session_id, file_path)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS flag_acknowledgments (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id       TEXT NOT NULL,
+                device_id        TEXT NOT NULL,
+                flag_key         TEXT NOT NULL,
+                acknowledged_by  TEXT,
+                note             TEXT,
+                created_at       TEXT NOT NULL,
+                UNIQUE(session_id, flag_key)
+            )
+        """)
         conn.commit()
 
 
@@ -227,4 +239,67 @@ def delete_file_flags_for_session(session_id: str, device_id: str):
             "DELETE FROM file_flags WHERE session_id=? AND device_id=?",
             (session_id, device_id)
         )
+        conn.execute(
+            "DELETE FROM flag_acknowledgments WHERE session_id=? AND device_id=?",
+            (session_id, device_id)
+        )
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Flag acknowledgments
+# ---------------------------------------------------------------------------
+
+def acknowledge_flag(session_id: str, device_id: str, flag_key: str,
+                     acknowledged_by: str = "", note: str = ""):
+    """Mark a forensic flag as reviewed/acknowledged."""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO flag_acknowledgments
+                (session_id, device_id, flag_key, acknowledged_by, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, flag_key)
+            DO UPDATE SET acknowledged_by=excluded.acknowledged_by,
+                          note=excluded.note,
+                          created_at=excluded.created_at
+        """, (session_id, device_id, flag_key, acknowledged_by, note, now))
+        conn.commit()
+
+
+def unacknowledge_flag(session_id: str, flag_key: str):
+    """Remove acknowledgment for a forensic flag."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM flag_acknowledgments WHERE session_id=? AND flag_key=?",
+            (session_id, flag_key)
+        )
+        conn.commit()
+
+
+def get_acknowledgments(session_id: str) -> list:
+    """Return all acknowledgments for a session as a list of dicts."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM flag_acknowledgments WHERE session_id=? ORDER BY created_at DESC",
+            (session_id,)
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_all_acknowledgments() -> list:
+    """Return every acknowledgment across all sessions."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM flag_acknowledgments ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_all_file_flags() -> list:
+    """Return every investigator file flag across all sessions."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM file_flags ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]

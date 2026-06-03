@@ -31,6 +31,7 @@ class ReportingModule:
         self.manifest: dict = {}
         self.case_meta: dict = {}
         self.packages: list = []
+        self.file_flags: list = []   # investigator-set manual flags from Explorer
 
     # ------------------------------------------------------------------
     # Data loading
@@ -160,7 +161,7 @@ class ReportingModule:
 
     def _info_rows(self) -> str:
         if not self.device_info:
-            return '<div class="info-row"><span class="ik">Status</span><span class="iv">No device info available</span></div>'
+            return '<div class="kv"><span class="k">Status</span><span class="v">No device info available</span></div>'
         labels = {
             "manufacturer":    "Manufacturer",
             "model":           "Model",
@@ -178,41 +179,49 @@ class ReportingModule:
         rows = []
         for k, label in labels.items():
             v = self.device_info.get(k, "N/A") or "N/A"
-            rows.append(
-                f'<div class="info-row">'
-                f'<span class="ik">{label}</span>'
-                f'<span class="iv" title="{v}">{v}</span>'
-                f'</div>'
-            )
+            rows.append(f'<div class="kv"><span class="k">{label}</span><span class="v" title="{v}">{v}</span></div>')
         return "\n".join(rows)
 
     def _app_cards(self) -> str:
         apps_cfg = [
-            ("WhatsApp", "wa",  "#25D366"),
-            ("Telegram",  "tg",  "#2AABEE"),
-            ("Signal",    "sg",  "#3A76F0"),
-            ("Instagram", "ig",  "#E1306C"),
+            ("WhatsApp",  "#25D366", "whatsapp"),
+            ("Telegram",  "#2AABEE", "telegram"),
+            ("Signal",    "#3A76F0", "signal"),
+            ("Instagram", "#E1306C", "instagram"),
         ]
         app_data = self.analysis.get("app_artifacts", {})
         cards = []
-        for name, css, colour in apps_cfg:
+        for name, colour, app_key in apps_cfg:
             d = app_data.get(name)
+            style = f"background:var(--s1);padding:14px;border-left:3px solid {colour};"
             if d:
-                breakdown = "".join(
-                    f'<div class="as"><span>{c}</span><span>{n}</span></div>'
-                    for c, n in d.get("file_breakdown", {}).items()
+                rows = "".join(
+                    f'<div style="display:flex;justify-content:space-between;padding:4px 0;'
+                    f'border-bottom:1px solid var(--bd2);font-size:11px">'
+                    f'<span style="color:var(--t3)">{c}</span>'
+                    f'<span style="color:var(--t1);font-family:var(--mono)">{n}</span></div>'
+                    for c, n in [("Total Files", d["total_files"]), ("Size", f'{d["total_size_mb"]} MB')]
+                    + list(d.get("file_breakdown", {}).items())
                 )
-                inner = (
-                    f'<div class="as"><span>Total Files</span><span>{d["total_files"]}</span></div>'
-                    f'<div class="as"><span>Total Size</span><span>{d["total_size_mb"]} MB</span></div>'
-                    f'{breakdown}'
+                gallery_btn = (
+                    f'<a href="{self._explorer_url}?app={app_key}" target="_blank"'
+                    f' style="display:inline-flex;align-items:center;gap:5px;margin-top:10px;'
+                    f'padding:4px 10px;font-size:10px;font-weight:700;text-decoration:none;'
+                    f'border:1px solid {colour}40;color:{colour};transition:.15s;letter-spacing:.3px;"'
+                    f' onmouseover="this.style.background=\'{colour}22\'"'
+                    f' onmouseout="this.style.background=\'transparent\'">'
+                    f'<svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+                    f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+                    f'd="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"></path></svg>'
+                    f'View in Gallery</a>'
                 )
+                inner = rows + gallery_btn
             else:
-                inner = '<div class="app-empty">Not found / no media</div>'
-
+                inner = '<div style="color:var(--t3);font-size:11px;padding:6px 0;">Not found / no media</div>'
             cards.append(
-                f'<div class="app-card" style="--ac:{colour}">'
-                f'<div class="app-name">{name}</div>{inner}</div>'
+                f'<div style="{style}">'
+                f'<div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px;">{name}</div>'
+                f'{inner}</div>'
             )
         return "\n".join(cards)
 
@@ -220,70 +229,66 @@ class ReportingModule:
         flags = self.analysis.get("forensic_flags", [])
         if not flags:
             return '<div class="empty">No forensic flags detected</div>'
-
-        sev_cfg = {
-            "HIGH":   {"color": "#f85149", "bg": "rgba(248,81,73,.08)",   "bd": "rgba(248,81,73,.25)"},
-            "MEDIUM": {"color": "#d29922", "bg": "rgba(210,153,34,.08)",  "bd": "rgba(210,153,34,.25)"},
-            "LOW":    {"color": "#58a6ff", "bg": "rgba(88,166,255,.08)",  "bd": "rgba(88,166,255,.25)"},
-        }
-
-        # Group by severity
         grouped: dict = {"HIGH": [], "MEDIUM": [], "LOW": []}
         for fl in flags:
-            sev = fl.get("severity", "LOW")
-            grouped.setdefault(sev, []).append(fl)
-
-        sections = []
+            grouped.setdefault(fl.get("severity", "LOW"), []).append(fl)
+        rows = []
         for sev in ("HIGH", "MEDIUM", "LOW"):
-            group = grouped.get(sev, [])
-            if not group:
-                continue
-            cfg = sev_cfg.get(sev, sev_cfg["LOW"])
-            rows = []
-            for fl in group:
-                file_part = (
-                    f'<span style="font-family:monospace;font-size:10px;color:#8b949e;'
-                    f'margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
-                    f'max-width:260px;display:inline-block;vertical-align:middle" title="{fl.get("file","")}">'
-                    f'— {fl["file"].split("/")[-1] if fl.get("file") else ""}</span>'
-                ) if fl.get("file") else ""
+            for fl in grouped.get(sev, []):
+                key = fl.get("type", "") + "::" + (fl.get("file") or "")
                 rows.append(
-                    f'<div style="display:flex;align-items:baseline;gap:8px;padding:5px 10px;'
-                    f'border-bottom:1px solid {cfg["bd"]}22;font-size:12px">'
-                    f'<span style="color:{cfg["color"]};font-weight:700;font-size:10px;'
-                    f'white-space:nowrap;min-width:140px">{fl.get("type","")}</span>'
-                    f'<span style="color:#8b949e;flex:1">{fl.get("description","")}</span>'
-                    f'{file_part}</div>'
+                    f'<div class="flag-row" data-fkey="{key}">'
+                    f'<span class="fbadge {sev}">{sev}</span>'
+                    f'<div style="flex:1;min-width:0"><div class="ftext">{fl.get("type","")} — {fl.get("description","")}</div>'
+                    f'{"<div class=fpath>" + fl.get("file","") + "</div>" if fl.get("file") else ""}'
+                    f'</div>'
+                    f'<button class="ack-btn" onclick="toggleAck(this,\'{key.replace(chr(39), "")}\')">✓ Reviewed</button>'
+                    f'</div>'
                 )
-            header = (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;'
-                f'background:{cfg["bg"]};border-bottom:1px solid {cfg["bd"]}">'
-                f'<span style="background:{cfg["color"]};color:#fff;font-size:10px;font-weight:800;'
-                f'padding:2px 8px;border-radius:4px">{sev}</span>'
-                f'<span style="color:{cfg["color"]};font-weight:600;font-size:12px">'
-                f'{len(group)} flag{"s" if len(group)>1 else ""}</span></div>'
-            )
-            sections.append(
-                f'<div style="border:1px solid {cfg["bd"]};border-radius:6px;'
-                f'overflow:hidden;margin-bottom:8px">'
-                f'{header}{"".join(rows)}</div>'
-            )
-        return "\n".join(sections)
+        return "\n".join(rows)
+
+    def _investigator_flags_html(self) -> str:
+        flags = self.file_flags
+        if not flags:
+            return '<div class="empty">No files flagged by investigator</div>'
+        grouped: dict = {"HIGH": [], "MEDIUM": [], "LOW": []}
+        for fl in flags:
+            grouped.setdefault(fl.get("severity", "LOW"), []).append(fl)
+        rows = []
+        for sev in ("HIGH", "MEDIUM", "LOW"):
+            for fl in grouped.get(sev, []):
+                fp   = fl.get("file_path", "")
+                note = fl.get("note", "")
+                ts   = fl.get("created_at", "")[:19] if fl.get("created_at") else ""
+                fname = fp.split("/")[-1] if fp else ""
+                rows.append(
+                    f'<div class="flag-row">'
+                    f'<span class="fbadge {sev}">{sev}</span>'
+                    f'<div style="flex:1;min-width:0">'
+                    f'<div class="ftext">{fname}'
+                    f'{"<span style=\"color:var(--t3);font-size:10px;margin-left:8px;\">" + note + "</span>" if note else ""}'
+                    f'</div>'
+                    f'<div class="fpath">{fp}</div>'
+                    f'{"<div style=\"font-size:10px;color:var(--t3);margin-top:2px;\">Flagged: " + ts + "</div>" if ts else ""}'
+                    f'</div></div>'
+                )
+        return "\n".join(rows)
 
     def _file_table(self, files: list, empty: str = "No files") -> str:
         if not files:
             return f'<div class="empty">{empty}</div>'
         rows = "".join(
-            f'<tr><td>{f.get("name","")}</td>'
-            f'<td><span class="cat-badge cat-{f.get("category","other")}">'
-            f'{f.get("category","")}</span></td>'
-            f'<td>{f.get("size_mb",0):.2f} MB</td>'
-            f'<td>{f.get("modified_time","")[:19]}</td>'
-            f'<td class="pcell" title="{f.get("path","")}">{f.get("path","")}</td></tr>'
+            f'<tr>'
+            f'<td>{f.get("name","")}</td>'
+            f'<td><span class="cbadge">{f.get("category","")}</span></td>'
+            f'<td class="mono">{f.get("size_mb",0):.2f} MB</td>'
+            f'<td class="mono">{f.get("modified_time","")[:19]}</td>'
+            f'<td class="mono trunc" title="{f.get("path","")}">{f.get("path","")}</td>'
+            f'</tr>'
             for f in files
         )
         return (
-            '<table class="ftable"><thead><tr>'
+            '<table class="dtable"><thead><tr>'
             '<th>Filename</th><th>Category</th><th>Size</th>'
             '<th>Modified</th><th>Path</th>'
             '</tr></thead><tbody>' + rows + '</tbody></table>'
@@ -292,37 +297,32 @@ class ReportingModule:
     def _packages_html(self) -> str:
         if not self.packages:
             return '<div class="empty">No package list available</div>'
-        # Color third-party packages differently (not com.android / com.google / com.samsung etc.)
         system_prefixes = ("com.android", "com.google", "com.samsung", "com.qualcomm",
                            "com.mediatek", "com.miui", "android", "com.huawei",
                            "com.lge", "com.htc", "com.sony", "com.oppo", "com.vivo")
-        items = []
+        rows = []
         for pkg in self.packages:
-            is_system = pkg.startswith(system_prefixes)
-            color = "#8b949e" if is_system else "#58a6ff"
-            items.append(
-                f'<div style="font-family:monospace;font-size:11px;color:{color};'
-                f'padding:2px 0;border-bottom:1px solid #21262d22;white-space:nowrap;'
-                f'overflow:hidden;text-overflow:ellipsis" title="{pkg}">{pkg}</div>'
-            )
-        return "\n".join(items)
+            is_sys = pkg.startswith(system_prefixes)
+            cls = "" if is_sys else ' class="pkg-3p"'
+            rows.append(f'<tr><td{cls} title="{pkg}">{pkg}</td></tr>')
+        return f'<table class="pkg-table"><tbody>{"".join(rows)}</tbody></table>'
 
     def _acq_log_html(self) -> str:
         log = self.manifest.get("log", [])
         if not log:
             return '<div class="empty">No acquisition log available</div>'
-        color_map = {"SUCCESS": "#3fb950", "WARNING": "#d29922", "ERROR": "#f85149", "INFO": "#8b949e"}
+        color_map = {"SUCCESS": "var(--grn)", "WARNING": "#e3b341", "ERROR": "var(--red)", "INFO": "var(--t3)"}
         rows = []
         for entry in log:
             level = entry.get("level", "INFO")
-            color = color_map.get(level, "#8b949e")
+            color = color_map.get(level, "var(--t3)")
             ts = entry.get("timestamp", "")[:19]
             msg = entry.get("message", "")
             rows.append(
-                f'<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid #21262d;font-size:12px">'
-                f'<span style="color:#444d56;white-space:nowrap;flex-shrink:0">{ts}</span>'
-                f'<span style="color:{color};font-weight:700;flex-shrink:0;min-width:55px">{level}</span>'
-                f'<span style="color:#e6edf3">{msg}</span></div>'
+                f'<div class="log-line">'
+                f'<span class="log-ts">{ts}</span>'
+                f'<span style="color:{color};font-weight:700;flex-shrink:0;min-width:55px;font-size:10px;text-transform:uppercase">{level}</span>'
+                f'<span class="log-msg">{msg}</span></div>'
             )
         return "\n".join(rows)
 
@@ -377,412 +377,634 @@ class ReportingModule:
         except Exception:
             _device, _session = "", ""
         explorer_url = f"/explorer/{_device}/{_session}" if _device and _session else "#"
+        self._explorer_url = explorer_url
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>DroidScout — Forensic Dashboard</title>
+<title>DroidScout — {case_number} — Forensic Report</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 :root{{
-  --bg0:#0d1117;--bg1:#161b22;--bg2:#1c2128;--bd:#30363d;
-  --t1:#e6edf3;--t2:#8b949e;
-  --blue:#58a6ff;--green:#3fb950;--yellow:#d29922;
-  --red:#f85149;--purple:#bc8cff;--orange:#f0883e;
-  --teal:#39d353;
+  --bg:  #0d1117;
+  --s1:  #161b22;
+  --s2:  #1c2128;
+  --bd:  #30363d;
+  --bd2: #21262d;
+  --t1:  #e6edf3;
+  --t2:  #8b949e;
+  --t3:  #484f58;
+  --acc: #e3b341;    /* amber — single accent */
+  --red: #f85149;
+  --grn: #3fb950;
+  --blu: #58a6ff;
+  --mono:'Consolas','Courier New',monospace;
 }}
-body{{background:var(--bg0);color:var(--t1);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px}}
+html{{scroll-behavior:smooth}}
+body{{
+  background:var(--bg);color:var(--t1);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  font-size:13px;line-height:1.55;
+}}
+::-webkit-scrollbar{{width:5px;height:5px}}
+::-webkit-scrollbar-track{{background:transparent}}
+::-webkit-scrollbar-thumb{{background:var(--bd);border-radius:2px}}
 
-/* ── Header ── */
-.hdr{{background:var(--bg1);border-bottom:1px solid var(--bd);padding:14px 32px;
-      display:flex;align-items:center;justify-content:space-between;
-      position:sticky;top:0;z-index:99}}
-.logo{{font-size:20px;font-weight:800;color:var(--blue);letter-spacing:-0.5px}}
-.logo span{{color:var(--t1)}}
-.hdr-badge{{background:rgba(88,166,255,.15);color:var(--blue);
-            border:1px solid rgba(88,166,255,.3);padding:3px 12px;
-            border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px}}
-.hdr-meta{{color:var(--t2);font-size:12px;text-align:right;line-height:1.6}}
+/* ─── TOP BANNER ─────────────────────────────────────────────────── */
+.banner{{
+  background:var(--s1);
+  border-bottom:2px solid var(--acc);
+  padding:0 32px;
+  display:flex;align-items:stretch;
+  position:sticky;top:0;z-index:100;
+}}
+.banner-brand{{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 20px 12px 0;
+  border-right:1px solid var(--bd);
+  margin-right:20px;
+}}
+.brand-name{{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--t1)}}
+.brand-name em{{color:var(--acc);font-style:normal}}
+.brand-tag{{
+  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--acc);border:1px solid var(--acc);padding:2px 6px;
+}}
+.banner-meta{{
+  display:flex;align-items:center;gap:32px;flex:1;
+  font-size:11px;color:var(--t2);
+}}
+.bm-item{{display:flex;flex-direction:column;gap:1px;padding:10px 0}}
+.bm-label{{font-size:9px;font-weight:700;text-transform:uppercase;
+           letter-spacing:1px;color:var(--t3)}}
+.bm-val{{color:var(--t1);font-family:var(--mono);font-size:12px}}
+.banner-actions{{display:flex;align-items:center;gap:8px;padding:10px 0;margin-left:auto}}
+.btn-outline{{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 12px;border:1px solid var(--bd);color:var(--t2);
+  font-size:11px;font-weight:600;text-decoration:none;
+  transition:.15s;cursor:pointer;background:transparent;
+}}
+.btn-outline:hover{{border-color:var(--acc);color:var(--acc)}}
 
-/* ── Layout ── */
-.wrap{{max-width:1440px;margin:0 auto;padding:28px 32px}}
-.sec-title{{font-size:11px;font-weight:700;color:var(--t2);
-            text-transform:uppercase;letter-spacing:1.2px;
-            margin-bottom:14px;display:flex;align-items:center;gap:8px}}
-.sec-title::before{{content:'';display:inline-block;width:3px;height:14px;
-                    background:var(--blue);border-radius:2px}}
-.mb{{margin-bottom:24px}}
+/* ─── LAYOUT ─────────────────────────────────────────────────────── */
+.layout{{display:flex;min-height:calc(100vh - 57px)}}
 
-/* ── Cards ── */
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:20px}}
-.card-title{{font-size:12px;color:var(--t2);margin-bottom:6px;font-weight:500}}
-.card-val{{font-size:30px;font-weight:800;color:var(--t1)}}
-.card-sub{{font-size:11px;color:var(--t2);margin-top:3px}}
+/* ─── LEFT SIDEBAR / TOC ─────────────────────────────────────────── */
+.sidebar{{
+  width:200px;flex-shrink:0;
+  background:var(--s1);border-right:1px solid var(--bd);
+  position:sticky;top:57px;height:calc(100vh - 57px);
+  overflow-y:auto;padding:16px 0;
+}}
+.toc-head{{
+  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--t3);padding:0 16px 8px;
+}}
+.toc-link{{
+  display:block;padding:5px 16px;font-size:12px;color:var(--t2);
+  text-decoration:none;border-left:2px solid transparent;
+  transition:.12s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}}
+.toc-link:hover{{color:var(--t1);background:var(--s2)}}
+.toc-link.active{{color:var(--acc);border-left-color:var(--acc);background:var(--s2)}}
+.toc-sep{{height:1px;background:var(--bd);margin:6px 16px}}
 
-/* ── Stat grid ── */
-.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}}
-@media(max-width:900px){{.stats{{grid-template-columns:repeat(2,1fr)}}}}
+/* ─── MAIN CONTENT ───────────────────────────────────────────────── */
+.main{{flex:1;padding:28px 32px;overflow-x:hidden}}
 
-/* ── Charts ── */
-.charts{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
-@media(max-width:900px){{.charts{{grid-template-columns:1fr}}}}
-.ch-wrap{{position:relative;height:300px}}
+/* ─── SECTION ────────────────────────────────────────────────────── */
+.section{{margin-bottom:36px}}
+.sec-hd{{
+  display:flex;align-items:baseline;gap:10px;
+  border-bottom:1px solid var(--bd);padding-bottom:8px;margin-bottom:16px;
+}}
+.sec-num{{font-size:10px;font-weight:700;color:var(--acc);font-family:var(--mono);width:20px}}
+.sec-title{{font-size:12px;font-weight:700;text-transform:uppercase;
+            letter-spacing:1px;color:var(--t2)}}
+.sec-count{{font-size:11px;color:var(--t3);margin-left:auto}}
 
-/* ── Device info grid ── */
-.info-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}
-@media(max-width:900px){{.info-grid{{grid-template-columns:1fr 1fr}}}}
-.info-row{{display:flex;justify-content:space-between;align-items:center;
-           padding:10px 14px;background:var(--bg1);border:1px solid var(--bd);
-           border-radius:6px}}
-.ik{{color:var(--t2);font-size:12px;font-weight:500;white-space:nowrap}}
-.iv{{color:var(--t1);font-size:12px;font-family:monospace;text-align:right;
-     max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* ─── METRICS ROW ────────────────────────────────────────────────── */
+.metrics{{display:flex;gap:0;border:1px solid var(--bd)}}
+.metric{{
+  flex:1;padding:16px 20px;border-right:1px solid var(--bd);
+}}
+.metric:last-child{{border-right:none}}
+.m-val{{font-size:26px;font-weight:800;color:var(--t1);line-height:1;font-family:var(--mono)}}
+.m-label{{font-size:11px;color:var(--t2);margin-top:4px}}
+.m-sub{{font-size:10px;color:var(--t3);margin-top:2px}}
 
-/* ── App cards ── */
-.app-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}}
-@media(max-width:900px){{.app-grid{{grid-template-columns:repeat(2,1fr)}}}}
-.app-card{{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;
-           padding:18px;position:relative;overflow:hidden}}
-.app-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:3px;
-                   background:var(--ac,#58a6ff)}}
-.app-name{{font-size:15px;font-weight:700;margin-bottom:12px}}
-.as{{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;
-     color:var(--t2);border-bottom:1px solid var(--bd)}}
-.as span:last-child{{color:var(--t1);font-weight:600}}
-.app-empty{{color:var(--t2);font-size:12px;font-style:italic}}
+/* ─── DATA TABLE ─────────────────────────────────────────────────── */
+.dtable{{width:100%;border-collapse:collapse;font-size:12px}}
+.dtable th{{
+  text-align:left;padding:8px 12px;
+  background:var(--s2);color:var(--t3);font-weight:700;
+  font-size:10px;text-transform:uppercase;letter-spacing:.8px;
+  border-bottom:1px solid var(--bd);border-top:1px solid var(--bd);
+}}
+.dtable td{{
+  padding:7px 12px;border-bottom:1px solid var(--bd2);
+  color:var(--t1);vertical-align:top;
+}}
+.dtable tbody tr:hover td{{background:var(--s2)}}
+.mono{{font-family:var(--mono);font-size:11px;color:var(--t2)}}
+.trunc{{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 
-/* ── Flags ── */
-.flag{{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;
-       border-radius:6px;margin-bottom:8px;border:1px solid}}
-.flag.HIGH{{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.3)}}
-.flag.MEDIUM{{background:rgba(210,153,34,.08);border-color:rgba(210,153,34,.3)}}
-.flag.LOW{{background:rgba(88,166,255,.08);border-color:rgba(88,166,255,.3)}}
-.fbadge{{font-size:10px;font-weight:800;padding:3px 8px;border-radius:4px;
-         white-space:nowrap;flex-shrink:0;margin-top:2px}}
-.flag.HIGH .fbadge{{background:var(--red);color:#fff}}
-.flag.MEDIUM .fbadge{{background:var(--yellow);color:#000}}
-.flag.LOW .fbadge{{background:var(--blue);color:#000}}
-.fcontent{{flex:1}}
-.ftype{{font-weight:700;font-size:13px;margin-bottom:2px}}
-.fdesc{{color:var(--t2);font-size:12px}}
-.flag-file{{color:var(--blue);font-size:11px;font-family:monospace;
-            margin-top:4px;word-break:break-all}}
+/* ─── KEY-VALUE GRID ─────────────────────────────────────────────── */
+.kv-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+          background:var(--bd);border:1px solid var(--bd)}}
+@media(max-width:900px){{.kv-grid{{grid-template-columns:1fr 1fr}}}}
+.kv{{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 14px;background:var(--s1);gap:12px;
+}}
+.k{{font-size:11px;color:var(--t3);font-weight:600;white-space:nowrap}}
+.v{{font-family:var(--mono);font-size:11px;color:var(--t1);
+    text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}}
 
-/* ── File table ── */
-.ftable{{width:100%;border-collapse:collapse;font-size:12px}}
-.ftable th{{text-align:left;padding:10px 12px;background:var(--bg1);
-            color:var(--t2);font-weight:600;border-bottom:1px solid var(--bd)}}
-.ftable td{{padding:8px 12px;border-bottom:1px solid var(--bd)}}
-.ftable tr:hover td{{background:rgba(255,255,255,.02)}}
-.pcell{{font-family:monospace;color:var(--t2);max-width:280px;
-        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* ─── CHARTS ─────────────────────────────────────────────────────── */
+.chart-row{{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--bd);
+            border:1px solid var(--bd);margin-bottom:1px}}
+@media(max-width:900px){{.chart-row{{grid-template-columns:1fr}}}}
+.ch-panel{{background:var(--s1);padding:16px}}
+.ch-label{{font-size:10px;font-weight:700;text-transform:uppercase;
+           letter-spacing:.8px;color:var(--t3);margin-bottom:12px}}
+.ch-wrap{{position:relative;height:240px}}
 
-/* ── Category badges ── */
-.cat-badge{{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}}
-.cat-images{{background:rgba(88,166,255,.2);color:var(--blue)}}
-.cat-videos{{background:rgba(248,81,73,.2);color:var(--red)}}
-.cat-audio{{background:rgba(210,153,34,.2);color:var(--yellow)}}
-.cat-documents{{background:rgba(63,185,80,.2);color:var(--green)}}
-.cat-archives{{background:rgba(188,140,255,.2);color:var(--purple)}}
-.cat-databases{{background:rgba(240,136,62,.2);color:var(--orange)}}
-.cat-apk{{background:rgba(57,211,83,.2);color:var(--teal)}}
-.cat-other{{background:rgba(139,148,158,.2);color:var(--t2)}}
+/* ─── FLAGS ──────────────────────────────────────────────────────── */
+.flag-row{{
+  display:flex;align-items:flex-start;gap:10px;
+  border-bottom:1px solid var(--bd2);padding:8px 0;transition:opacity .2s;
+}}
+.flag-row:last-child{{border-bottom:none}}
+.flag-row.ack{{opacity:.45}}
+.flag-row.ack .ftext{{text-decoration:line-through;color:var(--t3)}}
+.fbadge{{
+  font-size:9px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;
+  padding:3px 7px;text-align:center;flex-shrink:0;min-width:60px;
+}}
+.fbadge.HIGH{{background:#2d0f0f;color:var(--red);border:1px solid #5a1a1a}}
+.fbadge.MEDIUM{{background:#2e2200;color:#e3b341;border:1px solid #6a4f00}}
+.fbadge.LOW{{background:#0d1f3e;color:var(--blu);border:1px solid #1f4176}}
+.ftext{{font-size:12px;color:var(--t1)}}
+.fpath{{font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:3px;word-break:break-all}}
+.ack-btn{{
+  flex-shrink:0;margin-left:auto;font-size:10px;font-weight:600;padding:2px 8px;
+  border:1px solid #30363d;color:#484f58;background:transparent;cursor:pointer;
+  white-space:nowrap;transition:.15s;
+}}
+.ack-btn:hover{{border-color:#3fb950;color:#3fb950}}
+.flag-row.ack .ack-btn{{border-color:#30363d;color:#30363d}}
+.flag-row.ack .ack-btn:hover{{border-color:#f85149;color:#f85149}}
 
-/* ── Tabs ── */
-.tabs{{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd)}}
-.tab{{padding:8px 18px;cursor:pointer;font-size:13px;color:var(--t2);
-      border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}}
-.tab.active{{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}}
+/* ─── PACKAGES ───────────────────────────────────────────────────── */
+.pkg-table{{width:100%;border-collapse:collapse;font-size:11px}}
+.pkg-table td{{padding:4px 10px;border-bottom:1px solid var(--bd2);font-family:var(--mono)}}
+.pkg-table tr:hover td{{background:var(--s2)}}
+.pkg-3p{{color:var(--acc)}}
+
+/* ─── HASH ───────────────────────────────────────────────────────── */
+.hash-ok{{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;margin-bottom:14px;
+  background:var(--s2);border-left:3px solid var(--grn);
+  font-size:12px;
+}}
+.hash-row{{padding:8px 0;border-bottom:1px solid var(--bd2)}}
+.hr-file{{font-size:11px;color:var(--t3);margin-bottom:3px}}
+.hr-hash{{font-family:var(--mono);font-size:11px;color:var(--grn);word-break:break-all}}
+
+/* ─── LOG ────────────────────────────────────────────────────────── */
+.log-line{{
+  display:flex;gap:10px;align-items:baseline;
+  padding:4px 0;border-bottom:1px solid var(--bd2);font-size:11px;
+}}
+.log-ts{{font-family:var(--mono);color:var(--t3);flex-shrink:0;font-size:10px;width:130px}}
+.log-msg{{color:var(--t2)}}
+
+/* ─── TABS ───────────────────────────────────────────────────────── */
+.tabs{{display:flex;border-bottom:1px solid var(--bd);margin-bottom:14px}}
+.tab{{
+  padding:7px 16px;cursor:pointer;font-size:11px;font-weight:600;
+  color:var(--t3);border-bottom:2px solid transparent;margin-bottom:-1px;
+  text-transform:uppercase;letter-spacing:.5px;transition:.12s;
+}}
+.tab:hover{{color:var(--t2)}}
+.tab.active{{color:var(--acc);border-bottom-color:var(--acc)}}
 .tab-pane{{display:none}}.tab-pane.active{{display:block}}
 
-/* ── Hash section ── */
-.hash-ok{{display:flex;align-items:center;gap:10px;padding:12px 16px;
-          background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.3);
-          border-radius:6px;margin-bottom:14px}}
-.hdot{{width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0}}
-.hash-row{{padding:10px 0;border-bottom:1px solid var(--bd)}}
-.hr-file{{font-size:12px;color:var(--t2);margin-bottom:4px}}
-.hr-hash{{font-family:'Courier New',monospace;font-size:12px;color:var(--green);word-break:break-all}}
+/* ─── CAT BADGE ──────────────────────────────────────────────────── */
+.cbadge{{font-size:10px;font-weight:600;padding:1px 6px;
+         background:var(--s2);border:1px solid var(--bd);color:var(--t2)}}
 
-/* ── Misc ── */
-.empty{{color:var(--t2);font-style:italic;padding:20px 0;text-align:center}}
-.footer{{text-align:center;padding:32px;color:var(--t2);font-size:12px;
-         border-top:1px solid var(--bd);margin-top:32px}}
-/* ── Print ── */
+/* ─── SCROLLBOX ──────────────────────────────────────────────────── */
+.scrollbox{{max-height:260px;overflow-y:auto}}
+
+/* ─── EMPTY ──────────────────────────────────────────────────────── */
+.empty{{color:var(--t3);font-size:12px;padding:18px 0;text-align:center}}
+
+/* ─── FOOTER ─────────────────────────────────────────────────────── */
+.footer{{
+  border-top:1px solid var(--bd);margin-top:20px;padding:18px 32px;
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;color:var(--t3);
+}}
+.footer strong{{color:var(--t2)}}
+
+/* ─── PRINT ──────────────────────────────────────────────────────── */
 @media print{{
-  body{{background:#fff;color:#000}}
-  .hdr{{position:static;background:#f5f5f5;border-bottom:2px solid #000}}
-  .logo{{color:#000}}.logo span{{color:#333}}
-  .hdr-badge,.hdr-meta{{color:#333}}
-  .card,.info-row,.app-card{{background:#fff;border:1px solid #ccc}}
-  .card-val,.card-title,.ik,.iv,.app-name,.ftype{{color:#000}}
-  .fdesc,.card-sub,.t2{{color:#555}}
-  .flag.HIGH{{background:#fff0ef;border-color:#c00}}
-  .flag.MEDIUM{{background:#fffbea;border-color:#a66}}
-  .flag.LOW{{background:#f0f8ff;border-color:#369}}
+  body{{background:#fff;color:#000;font-size:11px}}
+  .banner{{position:static;background:#f4f4f4;border-bottom:2px solid #000}}
+  .brand-name,.brand-tag,.bm-val,.bm-label{{color:#000}}
+  .bm-label{{color:#666}}
+  .sidebar{{display:none}}
+  .main{{padding:16px}}
+  .metrics{{border-color:#ccc}}
+  .metric{{border-color:#ccc}}
+  .m-val,.m-label{{color:#000}}
+  .m-sub{{color:#666}}
+  .kv-grid{{background:#ccc}}
+  .kv{{background:#fff}}
+  .k{{color:#666}}.v{{color:#000}}
+  .sec-title,.sec-num{{color:#333}}
+  .dtable th{{background:#f0f0f0;color:#333}}
+  .dtable td{{color:#000}}
+  .fbadge.HIGH{{background:#fee;color:#900;border-color:#c00}}
+  .fbadge.MEDIUM{{background:#ffe;color:#860;border-color:#ca0}}
+  .fbadge.LOW{{background:#eef;color:#369;border-color:#369}}
+  .hash-ok{{background:#f0fff0;border-color:#090}}
   canvas{{max-width:100%!important}}
-  .sec-title::before{{background:#000}}
-  .sec-title{{color:#000}}
 }}
 </style>
 </head>
 <body>
 
-<!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
-<div class="hdr">
-  <div style="display:flex;align-items:center;gap:14px">
-    <div class="logo">Droid<span>Scout</span></div>
-    <div class="hdr-badge">FORENSIC REPORT</div>
+<!-- ═══ TOP BANNER ══════════════════════════════════════════════════════ -->
+<div class="banner">
+  <div class="banner-brand">
+    <div>
+      <div class="brand-name">Droid<em>Scout</em></div>
+      <div class="brand-tag">Forensic Report</div>
+    </div>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
-    <a href="{explorer_url}" target="_blank"
-       style="display:inline-flex;align-items:center;gap:6px;background:rgba(88,166,255,.12);color:var(--blue);
-              border:1px solid rgba(88,166,255,.3);padding:6px 14px;border-radius:6px;
-              font-size:12px;font-weight:600;text-decoration:none;transition:.15s;"
-       onmouseover="this.style.background='rgba(88,166,255,.25)'" onmouseout="this.style.background='rgba(88,166,255,.12)'">
-      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+  <div class="banner-meta">
+    <div class="bm-item">
+      <span class="bm-label">Case No.</span>
+      <span class="bm-val">{case_number}</span>
+    </div>
+    <div class="bm-item">
+      <span class="bm-label">Investigator</span>
+      <span class="bm-val">{investigator}</span>
+    </div>
+    <div class="bm-item">
+      <span class="bm-label">Acquired</span>
+      <span class="bm-val">{acq_time[:19] if acq_time != 'N/A' else 'N/A'}</span>
+    </div>
+    <div class="bm-item">
+      <span class="bm-label">Generated</span>
+      <span class="bm-val">{gen_time}</span>
+    </div>
+    <div class="bm-item">
+      <span class="bm-label">Algorithm</span>
+      <span class="bm-val">SHA-256</span>
+    </div>
+  </div>
+  <div class="banner-actions">
+    <a href="{explorer_url}" target="_blank" class="btn-outline">
+      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"></path></svg>
       Gallery
     </a>
-    <a href="{explorer_url}?mode=explorer" target="_blank"
-       style="display:inline-flex;align-items:center;gap:6px;background:rgba(63,185,80,.1);color:#3fb950;
-              border:1px solid rgba(63,185,80,.3);padding:6px 14px;border-radius:6px;
-              font-size:12px;font-weight:600;text-decoration:none;transition:.15s;"
-       onmouseover="this.style.background='rgba(63,185,80,.22)'" onmouseout="this.style.background='rgba(63,185,80,.1)'">
-      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-      File Explorer
+    <a href="{explorer_url}?mode=explorer" target="_blank" class="btn-outline">
+      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+      Files
     </a>
-    <div class="hdr-meta" style="text-align:right">
-      Generated: {gen_time}<br>
-      Tool: DroidScout v1.0.0 &nbsp;|&nbsp; Algorithm: SHA-256
+    <button class="btn-outline" onclick="window.print()">
+      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+      Print
+    </button>
+  </div>
+</div>
+
+<div class="layout">
+
+<!-- ═══ SIDEBAR TOC ═════════════════════════════════════════════════════ -->
+<nav class="sidebar">
+  <div class="toc-head">Contents</div>
+  <a class="toc-link active" href="#s-case">Case Info</a>
+  <a class="toc-link" href="#s-device">Device</a>
+  <a class="toc-link" href="#s-summary">Summary</a>
+  <a class="toc-link" href="#s-charts">Analysis</a>
+  <a class="toc-link" href="#s-apps">App Insights</a>
+  <div class="toc-sep"></div>
+  <a class="toc-link" href="#s-packages">Packages</a>
+  <a class="toc-link" href="#s-flags">Forensic Flags</a>
+  <a class="toc-link" href="#s-iflags">Investigator Flags</a>
+  <a class="toc-link" href="#s-files">Notable Files</a>
+  <a class="toc-link" href="#s-hashes">Integrity</a>
+  <a class="toc-link" href="#s-log">Acq. Log</a>
+</nav>
+
+<!-- ═══ MAIN ════════════════════════════════════════════════════════════ -->
+<main class="main">
+
+<!-- §1 Case Information -->
+<section class="section" id="s-case">
+  <div class="sec-hd">
+    <span class="sec-num">01</span>
+    <span class="sec-title">Case Information</span>
+  </div>
+  <div class="kv-grid">
+    <div class="kv"><span class="k">Case Number</span><span class="v">{case_number}</span></div>
+    <div class="kv"><span class="k">Investigator</span><span class="v">{investigator}</span></div>
+    <div class="kv"><span class="k">Acquired At</span><span class="v">{acq_time[:19] if acq_time != 'N/A' else 'N/A'}</span></div>
+    <div class="kv"><span class="k">Duration</span><span class="v">{acq_duration}s</span></div>
+    <div class="kv"><span class="k">Report Generated</span><span class="v">{gen_time}</span></div>
+    <div class="kv"><span class="k">Tool Version</span><span class="v">DroidScout v1.0.0</span></div>
+  </div>
+  {f'<div style="margin-top:10px;padding:10px 14px;background:var(--s2);border-left:3px solid var(--acc);font-size:12px;color:var(--t1)"><span style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px;">Notes</span>{notes}</div>' if notes else ''}
+</section>
+
+<!-- §2 Device Information -->
+<section class="section" id="s-device">
+  <div class="sec-hd">
+    <span class="sec-num">02</span>
+    <span class="sec-title">Device Information</span>
+  </div>
+  <div class="kv-grid">
+{self._info_rows()}
+  </div>
+</section>
+
+<!-- §3 Evidence Summary -->
+<section class="section" id="s-summary">
+  <div class="sec-hd">
+    <span class="sec-num">03</span>
+    <span class="sec-title">Evidence Summary</span>
+  </div>
+  <div class="metrics">
+    <div class="metric">
+      <div class="m-val">{summary.get('total_files', 0):,}</div>
+      <div class="m-label">Total Files</div>
+      <div class="m-sub">Acquired artefacts</div>
+    </div>
+    <div class="metric">
+      <div class="m-val">{summary.get('total_size_mb', 0):.1f}</div>
+      <div class="m-label">Size (MB)</div>
+      <div class="m-sub">{summary.get('total_size_gb', 0):.3f} GB</div>
+    </div>
+    <div class="metric">
+      <div class="m-val">{self.analysis.get('recent_activity', {}).get('count', 0)}</div>
+      <div class="m-label">Recent Files</div>
+      <div class="m-sub">Modified last 7 days</div>
+    </div>
+    <div class="metric">
+      <div class="m-val" style="color:{'var(--red)' if flag_count else 'var(--grn)'}">{flag_count}</div>
+      <div class="m-label">Forensic Flags</div>
+      <div class="m-sub">{'Issues detected' if flag_count else 'No issues'}</div>
     </div>
   </div>
-</div>
+</section>
 
-<div class="wrap">
-
-<!-- ═══ CASE METADATA ════════════════════════════════════════════════════ -->
-<div class="sec-title">Case Information</div>
-<div class="info-grid mb" style="grid-template-columns:repeat(3,1fr)">
-  <div class="info-row"><span class="ik">Case Number</span><span class="iv">{case_number}</span></div>
-  <div class="info-row"><span class="ik">Investigator</span><span class="iv">{investigator}</span></div>
-  <div class="info-row"><span class="ik">Acquired At</span><span class="iv">{acq_time[:19] if acq_time != 'N/A' else 'N/A'}</span></div>
-  <div class="info-row"><span class="ik">Duration</span><span class="iv">{acq_duration}s</span></div>
-  <div class="info-row"><span class="ik">Generated At</span><span class="iv">{gen_time}</span></div>
-  <div class="info-row"><span class="ik">Tool</span><span class="iv">DroidScout v1.0.0</span></div>
-</div>
-{f'<div class="card mb" style="background:rgba(88,166,255,.05);border-color:rgba(88,166,255,.2)"><div class="card-title">Case Notes</div><div style="font-size:13px;color:#e6edf3;margin-top:4px">{notes}</div></div>' if notes else ''}
-
-<!-- ═══ DEVICE INFO ══════════════════════════════════════════════════════ -->
-<div class="sec-title">Device Information</div>
-<div class="info-grid mb">
-{self._info_rows()}
-</div>
-
-<!-- ═══ EVIDENCE SUMMARY ═════════════════════════════════════════════════ -->
-<div class="sec-title">Evidence Summary</div>
-<div class="stats mb">
-  <div class="card">
-    <div class="card-title">Total Files</div>
-    <div class="card-val">{summary.get('total_files', 0):,}</div>
-    <div class="card-sub">Acquired artefacts</div>
+<!-- §4 File Analysis -->
+<section class="section" id="s-charts">
+  <div class="sec-hd">
+    <span class="sec-num">04</span>
+    <span class="sec-title">File Analysis</span>
   </div>
-  <div class="card">
-    <div class="card-title">Total Size</div>
-    <div class="card-val">{summary.get('total_size_mb', 0):.1f} <span style="font-size:16px;font-weight:400">MB</span></div>
-    <div class="card-sub">{summary.get('total_size_gb', 0):.3f} GB</div>
+  <div class="chart-row">
+    <div class="ch-panel">
+      <div class="ch-label">File Type Distribution</div>
+      <div class="ch-wrap"><canvas id="pieChart"></canvas></div>
+    </div>
+    <div class="ch-panel">
+      <div class="ch-label">Monthly Activity Timeline</div>
+      <div class="ch-wrap"><canvas id="barChart"></canvas></div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-title">Recent Files</div>
-    <div class="card-val">{self.analysis.get('recent_activity', {}).get('count', 0)}</div>
-    <div class="card-sub">Modified last 7 days</div>
+  <div style="background:var(--bd);padding:1px">
+    <div class="ch-panel">
+      <div class="ch-label">Storage by Category (MB)</div>
+      <div class="ch-wrap" style="height:180px"><canvas id="sizeChart"></canvas></div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-title">Forensic Flags</div>
-    <div class="card-val" style="color:{flag_color}">{flag_count}</div>
-    <div class="card-sub">{'Issues detected' if flag_count else 'Clean'}</div>
-  </div>
-</div>
+</section>
 
-<!-- ═══ CHARTS ═══════════════════════════════════════════════════════════ -->
-<div class="sec-title">File Type Distribution &amp; Activity Timeline</div>
-<div class="charts mb">
-  <div class="card">
-    <div class="card-title">File Types — Count</div>
-    <div class="ch-wrap"><canvas id="pieChart"></canvas></div>
+<!-- §5 App Insights -->
+<section class="section" id="s-apps">
+  <div class="sec-hd">
+    <span class="sec-num">05</span>
+    <span class="sec-title">App Insights</span>
   </div>
-  <div class="card">
-    <div class="card-title">Monthly Activity Timeline</div>
-    <div class="ch-wrap"><canvas id="barChart"></canvas></div>
-  </div>
-</div>
-
-<!-- ═══ SIZE BREAKDOWN ═══════════════════════════════════════════════════ -->
-<div class="sec-title">Storage by Category</div>
-<div class="card mb">
-  <div class="ch-wrap" style="height:220px"><canvas id="sizeChart"></canvas></div>
-</div>
-
-<!-- ═══ APP INSIGHTS ═════════════════════════════════════════════════════ -->
-<div class="sec-title">App Insights</div>
-<div class="app-grid mb">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--bd);border:1px solid var(--bd)">
 {self._app_cards()}
-</div>
+  </div>
+</section>
 
-<!-- ═══ INSTALLED PACKAGES ═══════════════════════════════════════════════ -->
-<div class="sec-title">Installed Packages ({len(self.packages)})</div>
-<div class="card mb" style="padding:0;overflow:hidden">
-  <div style="max-height:220px;overflow-y:auto;padding:10px 14px">
+<!-- §6 Installed Packages -->
+<section class="section" id="s-packages">
+  <div class="sec-hd">
+    <span class="sec-num">06</span>
+    <span class="sec-title">Installed Packages</span>
+    <span class="sec-count">{len(self.packages)} total</span>
+  </div>
+  <div class="scrollbox" style="border:1px solid var(--bd)">
     {self._packages_html()}
   </div>
-</div>
+</section>
 
-<!-- ═══ FORENSIC FLAGS ═══════════════════════════════════════════════════ -->
-<div class="sec-title">Forensic Flags ({flag_count})</div>
-<div class="card mb" style="padding:0;overflow:hidden">
-  <div style="max-height:280px;overflow-y:auto;padding:10px">
+<!-- §7 Forensic Flags -->
+<section class="section" id="s-flags">
+  <div class="sec-hd">
+    <span class="sec-num">07</span>
+    <span class="sec-title">Forensic Flags</span>
+    <span class="sec-count" style="color:{'var(--red)' if flag_count else 'var(--grn)'}">{flag_count} {'flag' if flag_count == 1 else 'flags'}</span>
+  </div>
+  <div class="scrollbox" style="border:1px solid var(--bd);padding:8px 14px">
     {self._flags_html()}
   </div>
-</div>
+</section>
 
-<!-- ═══ FILE TABLES ══════════════════════════════════════════════════════ -->
-<div class="sec-title">Notable Files</div>
-<div class="card mb">
+<!-- §8 Investigator Flags -->
+<section class="section" id="s-iflags">
+  <div class="sec-hd">
+    <span class="sec-num">08</span>
+    <span class="sec-title">Investigator File Flags</span>
+    <span class="sec-count" style="color:{'var(--red)' if self.file_flags else 'var(--t3)'}">
+      {len(self.file_flags)} {'flag' if len(self.file_flags) == 1 else 'flags'} marked
+    </span>
+  </div>
+  <div class="scrollbox" style="border:1px solid var(--bd);padding:8px 14px">
+    {self._investigator_flags_html()}
+  </div>
+</section>
+
+<!-- §9 Notable Files -->
+<section class="section" id="s-files">
+  <div class="sec-hd">
+    <span class="sec-num">09</span>
+    <span class="sec-title">Notable Files</span>
+    <span class="sec-count" style="margin-left:auto;display:flex;gap:8px;">
+      <a href="{explorer_url}?view=large" target="_blank" class="btn-outline" style="font-size:10px;padding:3px 10px;">View All Large ↗</a>
+      <a href="{explorer_url}?view=recent" target="_blank" class="btn-outline" style="font-size:10px;padding:3px 10px;">View All Recent ↗</a>
+    </span>
+  </div>
   <div class="tabs">
-    <div class="tab active" onclick="tab(this,'large')">Large Files ({len(large)})</div>
-    <div class="tab" onclick="tab(this,'recent')">Recent Activity ({len(recent)})</div>
+    <div class="tab active" onclick="switchTab(this,'large')">Large ({len(large)})</div>
+    <div class="tab" onclick="switchTab(this,'recent')">Recent ({len(recent)})</div>
   </div>
-  <div id="large" class="tab-pane active">
-    {self._file_table(large, "No large files detected")}
-  </div>
-  <div id="recent" class="tab-pane">
-    {self._file_table(recent, "No recent files detected")}
-  </div>
-</div>
+  <div id="large" class="tab-pane active">{self._file_table(large, "No large files detected")}</div>
+  <div id="recent" class="tab-pane">{self._file_table(recent, "No recent files detected")}</div>
+</section>
 
-<!-- ═══ INTEGRITY ════════════════════════════════════════════════════════ -->
-<div class="sec-title">SHA-256 Integrity Verification</div>
-<div class="card mb">
+<!-- §10 Integrity -->
+<section class="section" id="s-hashes">
+  <div class="sec-hd">
+    <span class="sec-num">10</span>
+    <span class="sec-title">SHA-256 Integrity Verification</span>
+  </div>
   <div class="hash-ok">
-    <div class="hdot"></div>
-    <div>
-      <strong>Hash Manifest Active</strong> —
-      {self.hash_data.get('total_files', 0)} file(s) hashed using SHA-256.
-      Manifest generated: {self.hash_data.get('generated_at', 'N/A')}
-    </div>
+    <svg width="14" height="14" fill="none" stroke="var(--grn)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+    <span><strong>Hash Manifest Active</strong> — {self.hash_data.get('total_files', 0)} file(s) hashed using SHA-256. Generated: {self.hash_data.get('generated_at', 'N/A')}</span>
   </div>
-  <div class="card-title" style="margin-bottom:10px">Sample Hash Records</div>
   {self._hash_samples()}
-</div>
+</section>
 
-<!-- ═══ ACQUISITION LOG ══════════════════════════════════════════════════ -->
-<div class="sec-title">Acquisition Log</div>
-<div class="card mb" style="max-height:320px;overflow-y:auto">
-  {self._acq_log_html()}
-</div>
+<!-- §11 Acquisition Log -->
+<section class="section" id="s-log">
+  <div class="sec-hd">
+    <span class="sec-num">11</span>
+    <span class="sec-title">Acquisition Log</span>
+  </div>
+  <div class="scrollbox" style="border:1px solid var(--bd);padding:8px 14px">
+    {self._acq_log_html()}
+  </div>
+</section>
 
-</div><!-- /wrap -->
+</main>
+</div><!-- /layout -->
 
-<div class="footer">
-  DroidScout v1.0.0 &nbsp;·&nbsp; Open-Source Mobile Forensic Toolkit &nbsp;·&nbsp;
-  LGU Final Year Project — Muhammad Fahad Khan (Fall-2022-072/B)
-</div>
+<footer class="footer">
+  <span><strong>DroidScout v1.0.0</strong> — Open-Source Mobile Forensic Toolkit</span>
+  <span>LGU Final Year Project — Muhammad Fahad Khan (Fall-2022-072/B)</span>
+</footer>
 
 <script>
-// Tab switching
-function tab(el, id) {{
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+function switchTab(el, id) {{
+  el.closest('.section').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.closest('.section').querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById(id).classList.add('active');
 }}
 
-// Chart.js global defaults
-Chart.defaults.color = '#8b949e';
-Chart.defaults.borderColor = '#30363d';
+// TOC active on scroll
+const sections = document.querySelectorAll('.section[id]');
+const links = document.querySelectorAll('.toc-link');
+const obs = new IntersectionObserver(entries => {{
+  entries.forEach(e => {{
+    if (e.isIntersecting) {{
+      links.forEach(l => l.classList.remove('active'));
+      const a = document.querySelector('.toc-link[href="#' + e.target.id + '"]');
+      if (a) a.classList.add('active');
+    }}
+  }});
+}}, {{rootMargin:'-20% 0px -70% 0px'}});
+sections.forEach(s => obs.observe(s));
 
-const PALETTE = [
-  '#58a6ff','#f85149','#d29922','#3fb950',
-  '#bc8cff','#f0883e','#39d353','#8b949e'
-];
+Chart.defaults.color = '#484f58';
+Chart.defaults.borderColor = '#21262d';
+const PALETTE = ['#e3b341','#58a6ff','#f85149','#3fb950','#bc8cff','#f0883e','#39d353','#8b949e'];
 
-// Pie — file type count
 new Chart(document.getElementById('pieChart'), {{
   type: 'doughnut',
   data: {{
     labels: {cat_labels},
-    datasets: [{{
-      data: {cat_counts},
-      backgroundColor: PALETTE,
-      borderWidth: 2,
-      borderColor: '#1c2128',
-      hoverOffset: 6,
-    }}]
+    datasets: [{{data:{cat_counts},backgroundColor:PALETTE,borderWidth:2,borderColor:'#161b22',hoverOffset:4}}]
   }},
   options: {{
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {{
-      legend: {{
-        position: 'right',
-        labels: {{ padding: 14, font: {{ size: 12 }}, boxWidth: 14 }}
-      }}
-    }}
+    responsive:true, maintainAspectRatio:false,
+    plugins:{{legend:{{position:'right',labels:{{padding:12,font:{{size:11}},boxWidth:12}}}}}}
   }}
 }});
 
-// Bar — monthly timeline
 new Chart(document.getElementById('barChart'), {{
   type: 'bar',
   data: {{
     labels: {tl_labels},
-    datasets: [{{
-      label: 'Files Modified',
-      data: {tl_values},
-      backgroundColor: 'rgba(88,166,255,0.55)',
-      borderColor: '#58a6ff',
-      borderWidth: 1,
-      borderRadius: 4,
-    }}]
+    datasets: [{{label:'Files',data:{tl_values},backgroundColor:'#e3b341',borderWidth:0,borderRadius:2}}]
   }},
   options: {{
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {{
-      y: {{ beginAtZero: true, grid: {{ color: '#21262d' }} }},
-      x: {{ grid: {{ color: '#21262d' }}, ticks: {{ maxRotation: 45, font: {{ size: 11 }} }} }}
+    responsive:true,maintainAspectRatio:false,
+    scales:{{
+      y:{{beginAtZero:true,grid:{{color:'#21262d'}}}},
+      x:{{grid:{{display:false}},ticks:{{maxRotation:45,font:{{size:10}}}}}}
     }},
-    plugins: {{ legend: {{ display: false }} }}
+    plugins:{{legend:{{display:false}}}}
   }}
 }});
 
-// Horizontal bar — storage by category (MB)
 new Chart(document.getElementById('sizeChart'), {{
   type: 'bar',
   data: {{
     labels: {cat_labels},
-    datasets: [{{
-      label: 'Size (MB)',
-      data: {cat_sizes},
-      backgroundColor: PALETTE,
-      borderWidth: 0,
-      borderRadius: 4,
-    }}]
+    datasets: [{{label:'MB',data:{cat_sizes},backgroundColor:PALETTE,borderWidth:0,borderRadius:2}}]
   }},
   options: {{
-    indexAxis: 'y',
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {{
-      x: {{ beginAtZero: true, grid: {{ color: '#21262d' }},
-            title: {{ display: true, text: 'MB', color: '#8b949e' }} }},
-      y: {{ grid: {{ color: '#21262d' }} }}
+    indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    scales:{{
+      x:{{beginAtZero:true,grid:{{color:'#21262d'}},title:{{display:true,text:'MB',color:'#484f58',font:{{size:10}}}}}},
+      y:{{grid:{{display:false}}}}
     }},
-    plugins: {{ legend: {{ display: false }} }}
+    plugins:{{legend:{{display:false}}}}
   }}
 }});
+
+// ── Live flag acknowledgments ────────────────────────────────────────────────
+const _DEVICE  = "{_device}";
+const _SESSION = "{_session}";
+let _acks = {{}};
+
+async function loadAcks() {{
+  try {{
+    const r = await fetch(`/api/flags/${{_DEVICE}}/${{_SESSION}}/acknowledgments`);
+    const d = await r.json();
+    _acks = d.acknowledgments || {{}};
+    applyAcks();
+  }} catch(e) {{}}
+}}
+
+function applyAcks() {{
+  document.querySelectorAll('.flag-row[data-fkey]').forEach(row => {{
+    const key = row.dataset.fkey;
+    if (_acks[key]) {{
+      row.classList.add('ack');
+      row.querySelector('.ack-btn').textContent = '↺ Reopen';
+    }} else {{
+      row.classList.remove('ack');
+      row.querySelector('.ack-btn').textContent = '✓ Reviewed';
+    }}
+  }});
+}}
+
+async function toggleAck(btn, flagKey) {{
+  const isAcked = !!_acks[flagKey];
+  if (isAcked) {{
+    await fetch(`/api/flags/${{_DEVICE}}/${{_SESSION}}/acknowledge?flag_key=${{encodeURIComponent(flagKey)}}`, {{method:'DELETE'}});
+    delete _acks[flagKey];
+  }} else {{
+    const by = ''; // could prompt for investigator name
+    await fetch(`/api/flags/${{_DEVICE}}/${{_SESSION}}/acknowledge`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{flag_key: flagKey, acknowledged_by: by, note: ''}})
+    }});
+    _acks[flagKey] = {{flag_key: flagKey}};
+  }}
+  applyAcks();
+}}
+
+loadAcks();
 </script>
 </body>
 </html>"""

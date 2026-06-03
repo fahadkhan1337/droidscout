@@ -107,6 +107,10 @@ tailwind.config = {
       <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
       Files
     </button>
+    <button id="modeList" onclick="setMode('list')" class="btn tab" style="padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;">
+      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+      List
+    </button>
   </div>
   <button onclick="openFlaggedPanel()" class="btn" style="display:flex;align-items:center;gap:6px;background:#2e2200;color:#e3b341;border-color:#6a4f00;padding:6px 12px;">
     <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
@@ -117,15 +121,17 @@ tailwind.config = {
 <!-- GALLERY VIEW -->
 <div id="galleryView" style="padding:16px 20px;">
   <!-- Filter bar -->
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
-    <div style="display:flex;gap:4px;background:#0d1117;padding:3px;border-radius:8px;border:1px solid #30363d;">
-      <button class="btn tab-active" id="fAll"    onclick="setFilter('all')"    style="padding:4px 12px;border-radius:5px;font-size:11px;">All Media</button>
-      <button class="btn tab"       id="fImages"  onclick="setFilter('images')" style="padding:4px 12px;border-radius:5px;font-size:11px;">📷 Images</button>
-      <button class="btn tab"       id="fVideos"  onclick="setFilter('videos')" style="padding:4px 12px;border-radius:5px;font-size:11px;">🎬 Videos</button>
-      <button class="btn tab"       id="fAudio"   onclick="setFilter('audio')"  style="padding:4px 12px;border-radius:5px;font-size:11px;">🎵 Audio</button>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+    <div style="display:flex;gap:4px;background:#0d1117;padding:3px;border:1px solid #30363d;">
+      <button class="btn tab-active" id="fAll"    onclick="setFilter('all')"    style="padding:4px 12px;font-size:11px;">All</button>
+      <button class="btn tab"       id="fImages"  onclick="setFilter('images')" style="padding:4px 12px;font-size:11px;">Images</button>
+      <button class="btn tab"       id="fVideos"  onclick="setFilter('videos')" style="padding:4px 12px;font-size:11px;">Videos</button>
+      <button class="btn tab"       id="fAudio"   onclick="setFilter('audio')"  style="padding:4px 12px;font-size:11px;">Audio</button>
     </div>
-    <span id="galleryCount" style="font-size:12px;color:#484f58;margin-left:4px;"></span>
+    <span id="galleryCount" style="font-size:11px;color:#484f58;"></span>
   </div>
+  <!-- App filter row -->
+  <div id="appFilters" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;"></div>
   <!-- Grid -->
   <div id="galleryGrid" class="gallery-grid"></div>
   <div id="galleryEmpty" style="display:none;text-align:center;padding:60px 0;color:#484f58;">
@@ -134,6 +140,33 @@ tailwind.config = {
     <p style="font-size:12px;margin-top:4px;">Switch to Files mode to browse all files</p>
   </div>
   <div id="galleryLoader" style="display:flex;justify-content:center;padding:40px 0;"><div class="spinner"></div></div>
+</div>
+
+<!-- LIST VIEW (sorted large / recent) -->
+<div id="listView" style="display:none;padding:16px 20px;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+    <div style="display:flex;gap:4px;background:#0d1117;padding:3px;border:1px solid #30363d;">
+      <button id="lvLarge"  onclick="setListSort('size')"   style="padding:4px 12px;font-size:11px;border:none;cursor:pointer;">Largest Files</button>
+      <button id="lvRecent" onclick="setListSort('recent')" style="padding:4px 12px;font-size:11px;border:none;cursor:pointer;">Most Recent</button>
+    </div>
+    <span id="listCount" style="font-size:11px;color:#484f58;"></span>
+    <span id="listLoader" style="display:none;font-size:11px;color:#58a6ff;">Loading…</span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid #30363d;">
+    <table id="listTable" style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:#1c2128;">
+          <th style="text-align:left;padding:8px 12px;color:#484f58;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #30363d;white-space:nowrap;">#</th>
+          <th style="text-align:left;padding:8px 12px;color:#484f58;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #30363d;">Filename</th>
+          <th style="text-align:left;padding:8px 12px;color:#484f58;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #30363d;white-space:nowrap;">Size</th>
+          <th style="text-align:left;padding:8px 12px;color:#484f58;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #30363d;white-space:nowrap;">Modified</th>
+          <th style="text-align:left;padding:8px 12px;color:#484f58;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #30363d;">Path</th>
+          <th style="padding:8px 12px;border-bottom:1px solid #30363d;white-space:nowrap;"></th>
+        </tr>
+      </thead>
+      <tbody id="listTableBody"></tbody>
+    </table>
+  </div>
 </div>
 
 <!-- EXPLORER VIEW -->
@@ -176,7 +209,13 @@ tailwind.config = {
     <div style="display:flex;align-items:center;justify-content:between;padding:14px 18px;border-bottom:1px solid #30363d;gap:12px;">
       <svg width="16" height="16" fill="none" stroke="#e3b341" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
       <span style="font-weight:700;color:#e3b341;flex:1;">Flagged Files</span>
-      <button onclick="closeFlaggedPanel()" style="background:none;border:none;color:#484f58;cursor:pointer;padding:2px;">
+      <button onclick="regenReport()" id="regenBtn" title="Bake flags into report"
+        style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #e3b341;color:#e3b341;background:transparent;cursor:pointer;transition:.15s;"
+        onmouseover="this.style.background='#e3b34120'" onmouseout="this.style.background='transparent'">
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        Update Report
+      </button>
+      <button onclick="closeFlaggedPanel()" style="background:none;border:none;color:#484f58;cursor:pointer;padding:2px;margin-left:4px;">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
       </button>
     </div>
@@ -224,42 +263,119 @@ if (!SESSION && pathParts[2]) SESSION = pathParts[2];
 const API = ``;
 let currentMode = 'gallery';
 let currentFilter = 'all';
+let currentApp = '';
 let allMediaFiles = [];
 let explorerCurrentPath = '';
 let explorerSelectedPath = '';
 let flagModalFilePath = '';
 
+const APP_META = {
+  whatsapp:  { label: 'WhatsApp',  color: '#25D366' },
+  telegram:  { label: 'Telegram',  color: '#2AABEE' },
+  instagram: { label: 'Instagram', color: '#E1306C' },
+  signal:    { label: 'Signal',    color: '#3A76F0' },
+  snapchat:  { label: 'Snapchat',  color: '#FFFC00', fg: '#000' },
+  tiktok:    { label: 'TikTok',    color: '#EE1D52' },
+  facebook:  { label: 'Facebook',  color: '#1877F2' },
+};
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('headerDevice').textContent = DEVICE || 'Unknown Device';
   document.getElementById('headerSession').textContent = SESSION || '';
-  const startMode = params.get('mode') === 'explorer' ? 'explorer' : 'gallery';
+  const viewParam = params.get('view') || '';
+  const modeParam = params.get('mode') || '';
+  const appParam  = params.get('app')  || '';
+  if (appParam) currentApp = appParam;
+  let startMode = 'gallery';
+  if (modeParam === 'explorer') startMode = 'explorer';
+  if (viewParam === 'large' || viewParam === 'recent') { startMode = 'list'; _listSort = viewParam === 'recent' ? 'recent' : 'size'; }
   setMode(startMode);
-  if (startMode === 'gallery') await loadGallery();
-  else loadExplorerDir('');
+  if (startMode === 'gallery') {
+    await loadAppFilters();
+    await loadGallery();
+  } else if (startMode === 'explorer') {
+    loadExplorerDir('');
+  }
+  // list mode is handled inside setMode → loadListView
   updateFlagCount();
 });
 
 // ─── Mode switching ────────────────────────────────────────────────────────────
+let currentListSort = 'size';
+
 function setMode(mode) {
   currentMode = mode;
-  const gallery = document.getElementById('galleryView');
-  const explorer = document.getElementById('explorerView');
-  const btnG = document.getElementById('modeGallery');
-  const btnE = document.getElementById('modeExplorer');
-  if (mode === 'gallery') {
-    gallery.style.display = 'block'; explorer.style.display = 'none';
-    btnG.className = 'btn tab-active'; btnE.className = 'btn tab';
-    btnG.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
-    btnE.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
-  } else {
-    gallery.style.display = 'none'; explorer.style.display = 'flex';
-    btnE.className = 'btn tab-active'; btnG.className = 'btn tab';
-    btnG.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
-    btnE.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
-    if (!document.getElementById('explorerTree').children.length) loadExplorerDir('');
-  }
+  const views = { gallery: 'galleryView', explorer: 'explorerView', list: 'listView' };
+  Object.entries(views).forEach(([m, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = m === mode ? (m === 'explorer' ? 'flex' : 'block') : 'none';
+  });
+  const btns = { gallery: 'modeGallery', explorer: 'modeExplorer', list: 'modeList' };
+  Object.entries(btns).forEach(([m, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.className = 'btn ' + (m === mode ? 'tab-active' : 'tab');
+  });
+  if (mode === 'explorer' && !document.getElementById('explorerTree').children.length) loadExplorerDir('');
+  if (mode === 'list') loadListView(currentListSort);
 }
+
+let _listSort = 'size';
+async function loadListView(sort) {
+  _listSort = sort;
+  // Update sub-tab buttons
+  const btnL = document.getElementById('lvLarge');
+  const btnR = document.getElementById('lvRecent');
+  const activeStyle  = 'padding:4px 12px;font-size:11px;border:none;cursor:pointer;background:#1f6feb;color:#fff;';
+  const inactiveStyle= 'padding:4px 12px;font-size:11px;border:none;cursor:pointer;background:transparent;color:#8b949e;';
+  if (btnL) btnL.style.cssText = sort === 'size'   ? activeStyle : inactiveStyle;
+  if (btnR) btnR.style.cssText = sort === 'recent' ? activeStyle : inactiveStyle;
+
+  document.getElementById('listLoader').style.display = 'inline';
+  document.getElementById('listTableBody').innerHTML = '';
+  document.getElementById('listCount').textContent = '';
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/allfiles?sort=${sort}&limit=500`);
+    const data = await r.json();
+    const files = data.files || [];
+    document.getElementById('listCount').textContent = `${data.total} total — showing ${files.length}`;
+    const sevColor = {HIGH:'#f85149',MEDIUM:'#e3b341',LOW:'#58a6ff',INFO:'#8b949e'};
+    const tbody = document.getElementById('listTableBody');
+    files.forEach((f, i) => {
+      const tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom:1px solid #21262d;';
+      tr.onmouseover = () => tr.style.background = '#1c2128';
+      tr.onmouseout  = () => tr.style.background = 'transparent';
+      const flagCell = f.flag
+        ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border:1px solid;
+            color:${sevColor[f.flag.severity]||'#8b949e'};border-color:${sevColor[f.flag.severity]||'#8b949e'}40;
+            background:${sevColor[f.flag.severity]||'#8b949e'}10;">${f.flag.severity}</span>`
+        : '';
+      tr.innerHTML = `
+        <td style="padding:7px 12px;color:#484f58;font-family:monospace;font-size:11px;">${i+1}</td>
+        <td style="padding:7px 12px;color:#e6edf3;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(f.name)}">${esc(f.name)}</td>
+        <td style="padding:7px 12px;color:#e3b341;font-family:monospace;font-size:11px;white-space:nowrap;">${fmtBytes(f.size)}</td>
+        <td style="padding:7px 12px;color:#8b949e;font-family:monospace;font-size:11px;white-space:nowrap;">${f.modified}</td>
+        <td style="padding:7px 12px;color:#484f58;font-family:monospace;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(f.path)}">${esc(f.path)}</td>
+        <td style="padding:7px 12px;white-space:nowrap;display:flex;align-items:center;gap:6px;">
+          ${flagCell}
+          <button onclick="openFlagModal(event,'${esc(f.path)}')" title="Flag" style="background:none;border:1px solid #30363d;color:#8b949e;padding:2px 7px;cursor:pointer;font-size:10px;transition:.15s;"
+            onmouseover="this.style.borderColor='#e3b341';this.style.color='#e3b341'"
+            onmouseout="this.style.borderColor='#30363d';this.style.color='#8b949e'">Flag</button>
+          <a href="/api/explorer/${DEVICE}/${SESSION}/download?path=${encodeURIComponent(f.path)}" download="${esc(f.name)}"
+            style="border:1px solid #30363d;color:#8b949e;padding:2px 7px;font-size:10px;text-decoration:none;transition:.15s;"
+            onmouseover="this.style.borderColor='#58a6ff';this.style.color='#58a6ff'"
+            onmouseout="this.style.borderColor='#30363d';this.style.color='#8b949e'">DL</a>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    document.getElementById('listTableBody').innerHTML = `<tr><td colspan="6" style="color:#f85149;padding:12px;">Failed to load.</td></tr>`;
+  }
+  document.getElementById('listLoader').style.display = 'none';
+}
+
+function setListSort(sort) { loadListView(sort); }
 
 // ─── Gallery ──────────────────────────────────────────────────────────────────
 async function loadGallery() {
@@ -268,7 +384,8 @@ async function loadGallery() {
   document.getElementById('galleryGrid').innerHTML = '';
   document.getElementById('galleryEmpty').style.display = 'none';
   try {
-    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/media?kind=${currentFilter}`);
+    const appParam = currentApp ? `&app=${currentApp}` : '';
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/media?kind=${currentFilter}${appParam}`);
     const data = await r.json();
     allMediaFiles = data.files || [];
     renderGallery(allMediaFiles);
@@ -276,6 +393,44 @@ async function loadGallery() {
     document.getElementById('galleryGrid').innerHTML = `<p style="color:#f85149;font-size:13px;">Failed to load media.</p>`;
   }
   loader.style.display = 'none';
+}
+
+async function loadAppFilters() {
+  const bar = document.getElementById('appFilters');
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/apps`);
+    const data = await r.json();
+    const apps = data.apps || {};
+    if (!Object.keys(apps).length) { bar.style.display = 'none'; return; }
+    bar.innerHTML = '';
+    // "All Apps" clear button
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'btn ' + (currentApp === '' ? 'tab-active' : 'tab');
+    clearBtn.style.cssText = 'padding:3px 10px;font-size:11px;';
+    clearBtn.textContent = 'All Apps';
+    clearBtn.onclick = () => setAppFilter('');
+    bar.appendChild(clearBtn);
+
+    Object.entries(apps).forEach(([key, count]) => {
+      const meta = APP_META[key] || { label: key, color: '#8b949e' };
+      const btn = document.createElement('button');
+      const isActive = currentApp === key;
+      btn.style.cssText = `padding:3px 10px;font-size:11px;border:1px solid ${meta.color}40;
+        background:${isActive ? meta.color+'22' : 'transparent'};
+        color:${isActive ? meta.color : '#8b949e'};cursor:pointer;transition:.15s;`;
+      btn.innerHTML = `${meta.label} <span style="color:${meta.color};font-weight:700;">${count}</span>`;
+      btn.onclick = () => setAppFilter(key);
+      btn.onmouseover = () => { if (currentApp !== key) { btn.style.color = meta.color; btn.style.background = meta.color+'15'; } };
+      btn.onmouseout  = () => { if (currentApp !== key) { btn.style.color = '#8b949e'; btn.style.background = 'transparent'; } };
+      bar.appendChild(btn);
+    });
+  } catch {}
+}
+
+function setAppFilter(app) {
+  currentApp = app;
+  loadAppFilters();
+  loadGallery();
 }
 
 function renderGallery(files) {
@@ -520,6 +675,22 @@ async function openFlaggedPanel() {
     </div>`).join('');
 }
 function closeFlaggedPanel() { document.getElementById('flaggedPanel').style.display = 'none'; }
+
+async function regenReport() {
+  const btn = document.getElementById('regenBtn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="animation:spin .7s linear infinite"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Updating…`;
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/regenerate-report`, {method:'POST'});
+    const d = await r.json();
+    btn.innerHTML = `✓ Done`;
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = orig; }, 2500);
+  } catch(e) {
+    btn.innerHTML = `✗ Error`;
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = orig; }, 2500);
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtBytes(b) {
