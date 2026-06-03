@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DroidScout - Mobile Forensic Toolkit</title>
+    <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
@@ -58,6 +59,15 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .step-bar { display: flex; align-items: center; gap: 0; margin-top: 10px; }
+        .step { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #64748b; }
+        .step .dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; flex-shrink: 0; transition: background 0.3s; }
+        .step.active { color: #38bdf8; }
+        .step.active .dot { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
+        .step.done { color: #34d399; }
+        .step.done .dot { background: #34d399; }
+        .step-line { flex: 1; height: 1px; background: #334155; min-width: 12px; }
+        .step-line.done { background: #34d399; }
     </style>
 </head>
 <body class="antialiased font-sans selection:bg-darkPrimary selection:text-white pb-12">
@@ -82,7 +92,12 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        
+
+        <!-- Stats Bar -->
+        <section id="statsBar" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <!-- injected by loadStats() -->
+        </section>
+
         <!-- Devices Section -->
         <section class="glass rounded-2xl p-6 shadow-2xl">
             <div class="flex items-center justify-between mb-6">
@@ -103,15 +118,32 @@
 
         <!-- Records Section -->
         <section class="glass rounded-2xl p-6 shadow-2xl">
-            <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center justify-between mb-4">
                 <div>
                     <h2 class="text-xl font-semibold text-white">Acquisition Records</h2>
                     <p class="text-sm text-slate-400 mt-1">Historical forensic data grouped by device.</p>
                 </div>
                 <button onclick="fetchRecords()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                    Refresh Records
+                    Refresh
                 </button>
+            </div>
+
+            <!-- Search & Filter -->
+            <div class="flex flex-wrap gap-3 mb-5">
+                <div class="relative flex-1 min-w-48">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input id="recordSearch" type="text" placeholder="Search device or session ID…"
+                        oninput="filterRecords()"
+                        class="w-full bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
+                </div>
+                <select id="recordStatusFilter" onchange="filterRecords()"
+                    class="bg-darkBase/60 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 transition-colors">
+                    <option value="">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                    <option value="running">Running</option>
+                </select>
             </div>
 
             <div id="recordsContainer" class="space-y-6">
@@ -119,6 +151,146 @@
             </div>
         </section>
     </main>
+
+    <!-- Communication Viewer Modal (Contacts / Calls / SMS) -->
+    <div id="commModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
+        <div class="glass rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-700/80 flex flex-col" style="max-height:88vh">
+            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div id="commModalIcon" class="w-9 h-9 rounded-full flex items-center justify-center"></div>
+                    <div>
+                        <h3 id="commModalTitle" class="text-white font-bold text-lg"></h3>
+                        <p id="commModalSub" class="text-xs text-slate-400 font-mono"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a id="commModalCsv" href="#" class="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Export CSV
+                    </a>
+                    <button onclick="closeCommModal()" class="text-slate-500 hover:text-white p-1 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="p-3 border-b border-slate-700/30 flex-shrink-0">
+                <input id="commSearch" type="text" placeholder="Filter within results…" oninput="filterCommTable()"
+                    class="w-full bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-500">
+            </div>
+            <div id="commModalBody" class="overflow-y-auto flex-1 p-4"></div>
+        </div>
+    </div>
+
+    <!-- Evidence Search Modal -->
+    <div id="searchModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
+        <div class="glass rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-700/80 flex flex-col" style="max-height:85vh">
+            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+                <div>
+                    <h3 class="text-white font-bold text-lg">Search Evidence</h3>
+                    <p id="searchModalSub" class="text-xs text-slate-400 font-mono mt-0.5"></p>
+                </div>
+                <button onclick="closeSearchModal()" class="text-slate-500 hover:text-white p-1 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-4 border-b border-slate-700/30 flex-shrink-0 flex gap-2">
+                <input type="hidden" id="searchDeviceId">
+                <input type="hidden" id="searchSessionId">
+                <input id="searchQuery" type="text" placeholder="Enter keyword, phone number, or phrase…"
+                    class="flex-1 bg-darkBase/60 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500"
+                    onkeydown="if(event.key==='Enter') runSearch()">
+                <button onclick="runSearch()" class="bg-darkPrimary hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">Search</button>
+            </div>
+            <div id="searchModalBody" class="overflow-y-auto flex-1 p-4 text-xs font-mono"></div>
+        </div>
+    </div>
+
+    <!-- Acquisition Log Modal -->
+    <div id="logModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
+        <div class="glass rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-700/80 flex flex-col" style="max-height:85vh">
+            <div class="flex items-center justify-between p-5 border-b border-slate-700/50 flex-shrink-0">
+                <div>
+                    <h3 class="text-white font-bold text-lg">Acquisition Log</h3>
+                    <p id="logModalSession" class="text-xs text-slate-400 font-mono mt-0.5"></p>
+                </div>
+                <button onclick="closeLogModal()" class="text-slate-500 hover:text-white p-1 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div id="logModalBody" class="overflow-y-auto p-5 space-y-1 flex-1 text-xs font-mono"></div>
+        </div>
+    </div>
+
+    <!-- Edit Case Metadata Modal -->
+    <div id="caseModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)">
+        <div class="glass rounded-2xl shadow-2xl w-full max-w-md border border-slate-700/80 p-6">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-white font-bold text-lg">Edit Case Metadata</h3>
+                <button onclick="closeCaseModal()" class="text-slate-500 hover:text-white p-1 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <input type="hidden" id="caseModalDeviceId">
+            <input type="hidden" id="caseModalSessionId">
+            <div class="space-y-3 mb-5">
+                <input id="caseModalCaseNum" type="text" placeholder="Case Number"
+                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                <input id="caseModalInv" type="text" placeholder="Investigator Name"
+                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                <textarea id="caseModalNotes" placeholder="Notes" rows="3"
+                    class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="saveCaseMetadata()" class="flex-1 bg-darkPrimary hover:bg-sky-500 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">Save</button>
+                <button onclick="closeCaseModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Acquisition Complete Modal -->
+    <div id="summaryModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(0,0,0,0.7);backdrop-filter:blur(4px)">
+        <div class="glass rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-700/80">
+            <div class="flex items-center justify-between mb-5">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-white font-bold text-lg">Acquisition Complete</h3>
+                        <p id="modalSessionId" class="text-xs text-slate-400 font-mono"></p>
+                    </div>
+                </div>
+                <button onclick="closeModal()" class="text-slate-500 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mb-5">
+                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                    <div id="modalFiles" class="text-2xl font-bold text-sky-400">—</div>
+                    <div class="text-xs text-slate-400 mt-1">Files</div>
+                </div>
+                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                    <div id="modalSize" class="text-2xl font-bold text-indigo-400">—</div>
+                    <div class="text-xs text-slate-400 mt-1">Size (MB)</div>
+                </div>
+                <div class="bg-darkBase/60 rounded-xl p-3 text-center border border-slate-700/50">
+                    <div id="modalFlags" class="text-2xl font-bold text-yellow-400">—</div>
+                    <div class="text-xs text-slate-400 mt-1">Flags</div>
+                </div>
+            </div>
+            <div id="modalDevice" class="text-sm text-slate-400 bg-darkBase/40 rounded-lg px-3 py-2 mb-5 font-mono border border-slate-700/30"></div>
+            <div class="flex gap-3">
+                <a id="modalViewBtn" href="#" target="_blank"
+                   class="flex-1 flex items-center justify-center gap-2 bg-darkPrimary hover:bg-sky-500 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    View Report
+                </a>
+                <button onclick="closeModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-lg font-semibold text-sm transition-colors">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const API_BASE = '/api';
@@ -155,9 +327,12 @@
             }
         }
 
+        let _devicesLoaded = false;
         async function fetchDevices() {
             const container = document.getElementById('devicesContainer');
-            container.innerHTML = '<div class="col-span-full flex justify-center py-8"><div class="loader"></div></div>';
+            if (!_devicesLoaded) {
+                container.innerHTML = '<div class="col-span-full flex justify-center py-8"><div class="loader"></div></div>';
+            }
             
             try {
                 const res = await fetch(`${API_BASE}/devices`);
@@ -165,7 +340,8 @@
                 const data = await res.json();
                 
                 updateAdbStatus('ADB Running', true);
-                
+                _devicesLoaded = true;
+
                 if (data.devices.length === 0) {
                     container.innerHTML = `
                         <div class="col-span-full bg-darkCard/50 border border-slate-700/50 rounded-xl p-8 text-center">
@@ -187,44 +363,130 @@
                             </div>
                             <svg class="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         </div>
-                        <div class="mt-1 mb-4 border border-slate-700/60 rounded-lg p-3 bg-darkBase/30 space-y-2">
-                            <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Acquisition Options</p>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
-                                <input type="checkbox" id="opt-user-${device.id}" checked style="accent-color:#0ea5e9">
-                                User Storage (Photos, Docs, Downloads)
-                            </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
-                                <input type="checkbox" id="opt-app-${device.id}" checked style="accent-color:#0ea5e9">
-                                App Media (WhatsApp, Telegram, Signal)
-                            </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
-                                <input type="checkbox" id="opt-meta-${device.id}" checked style="accent-color:#0ea5e9">
-                                Metadata &amp; Logcat
-                            </label>
+                        <div class="mt-1 mb-3 border border-slate-700/60 rounded-lg p-3 bg-darkBase/30 space-y-2">
+                            <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Evidence Options</p>
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-user-${device.id}" checked style="accent-color:#0ea5e9">User Storage
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-app-${device.id}" checked style="accent-color:#0ea5e9">App Media
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-meta-${device.id}" checked style="accent-color:#0ea5e9">Metadata &amp; Logcat
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-net-${device.id}" checked style="accent-color:#0ea5e9">Network Info
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-ss-${device.id}" checked style="accent-color:#0ea5e9">Screenshot
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+                                    <input type="checkbox" id="opt-ps-${device.id}" checked style="accent-color:#0ea5e9">Processes
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300 col-span-2">
+                                    <input type="checkbox" id="opt-comm-${device.id}" checked style="accent-color:#0ea5e9">Contacts / Call Logs / SMS
+                                </label>
+                            </div>
+                        </div>
+                        <div class="mb-3 border border-slate-700/60 rounded-lg p-3 bg-darkBase/30 space-y-2">
+                            <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-1">Case Metadata</p>
+                            <input id="opt-case-${device.id}" type="text" placeholder="Case Number (optional)"
+                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
+                            <input id="opt-inv-${device.id}" type="text" placeholder="Investigator Name (optional)"
+                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500">
+                            <textarea id="opt-notes-${device.id}" placeholder="Notes (optional)" rows="2"
+                                class="w-full bg-darkBase/80 border border-slate-700 text-slate-200 placeholder-slate-600 text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 resize-none"></textarea>
                         </div>
                         <button onclick="acquireData('${device.id}')" id="btn-acq-${device.id}" class="w-full bg-gradient-to-r from-darkPrimary to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white py-2.5 rounded-lg font-medium transition-all shadow-lg shadow-indigo-500/25 flex justify-center items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                             Acquire Evidence
                         </button>
+                        <div id="stepper-${device.id}" class="hidden mt-3">
+                            <div class="step-bar" id="step-bar-${device.id}">
+                                <div class="step" id="step-acq-${device.id}"><div class="dot"></div>Acquiring</div>
+                                <div class="step-line" id="line1-${device.id}"></div>
+                                <div class="step" id="step-hash-${device.id}"><div class="dot"></div>Hashing</div>
+                                <div class="step-line" id="line2-${device.id}"></div>
+                                <div class="step" id="step-ana-${device.id}"><div class="dot"></div>Analyzing</div>
+                                <div class="step-line" id="line3-${device.id}"></div>
+                                <div class="step" id="step-rep-${device.id}"><div class="dot"></div>Reporting</div>
+                            </div>
+                            <p id="step-msg-${device.id}" class="text-xs text-slate-400 mt-2 text-center truncate"></p>
+                        </div>
                     </div>
                 `).join('');
             } catch (e) {
                 updateAdbStatus('ADB Stopped/Error', false);
-                container.innerHTML = '<p class="text-red-400 col-span-full">Failed to fetch devices. Is ADB running?</p>';
+                if (!_devicesLoaded) {
+                    container.innerHTML = '<p class="text-red-400 col-span-full">Failed to fetch devices. Is ADB running?</p>';
+                }
+                _devicesLoaded = true;
             }
+        }
+
+        const STEP_KEYWORDS = {
+            'step-acq': ['acquiring', 'pulling', 'metadata', 'logcat', 'storage', 'app', 'initializ'],
+            'step-hash': ['hash', 'sha'],
+            'step-ana':  ['analyz', 'categoriz', 'collecting', 'flagging', 'timeline'],
+            'step-rep':  ['report', 'generating', 'dashboard', 'csv', 'json'],
+        };
+
+        function updateStepper(device, message, done) {
+            const stepper = document.getElementById(`stepper-${device}`);
+            if (!stepper) return;
+            stepper.classList.remove('hidden');
+            document.getElementById(`step-msg-${device}`).textContent = message || '';
+
+            const steps = ['step-acq', 'step-hash', 'step-ana', 'step-rep'];
+            const lines = ['line1', 'line2', 'line3'];
+            const msg = (message || '').toLowerCase();
+
+            if (done) {
+                steps.forEach(s => {
+                    const el = document.getElementById(`${s}-${device}`);
+                    if (el) { el.className = 'step done'; }
+                });
+                lines.forEach(l => {
+                    const el = document.getElementById(`${l}-${device}`);
+                    if (el) el.classList.add('done');
+                });
+                return;
+            }
+
+            let activeIdx = 0;
+            steps.forEach((s, i) => {
+                const keywords = STEP_KEYWORDS[s] || [];
+                if (keywords.some(kw => msg.includes(kw))) activeIdx = i;
+            });
+
+            steps.forEach((s, i) => {
+                const el = document.getElementById(`${s}-${device}`);
+                if (!el) return;
+                if (i < activeIdx)       el.className = 'step done';
+                else if (i === activeIdx) el.className = 'step active';
+                else                      el.className = 'step';
+            });
+            lines.forEach((l, i) => {
+                const el = document.getElementById(`${l}-${device}`);
+                if (!el) return;
+                el.className = i < activeIdx ? 'step-line done' : 'step-line';
+            });
         }
 
         async function acquireData(device) {
             const btn = document.getElementById(`btn-acq-${device}`);
             const originalText = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<div class="loader"></div> <span id="status-text-' + device + '" class="ml-2">Starting...</span>';
+            btn.innerHTML = '<div class="loader"></div><span class="ml-2">Starting...</span>';
             btn.classList.add('opacity-75', 'cursor-not-allowed');
 
             function resetBtn() {
                 btn.disabled = false;
                 btn.innerHTML = originalText;
                 btn.classList.remove('opacity-75', 'cursor-not-allowed');
+                const stepper = document.getElementById(`stepper-${device}`);
+                if (stepper) stepper.classList.add('hidden');
             }
 
             try {
@@ -232,6 +494,13 @@
                     user_storage:    document.getElementById(`opt-user-${device}`)?.checked ?? true,
                     app_media:       document.getElementById(`opt-app-${device}`)?.checked ?? true,
                     metadata_logcat: document.getElementById(`opt-meta-${device}`)?.checked ?? true,
+                    network_info:    document.getElementById(`opt-net-${device}`)?.checked ?? true,
+                    screenshot:      document.getElementById(`opt-ss-${device}`)?.checked ?? true,
+                    processes:       document.getElementById(`opt-ps-${device}`)?.checked ?? true,
+                    communication:   document.getElementById(`opt-comm-${device}`)?.checked ?? true,
+                    case_number:     document.getElementById(`opt-case-${device}`)?.value?.trim() ?? "",
+                    investigator:    document.getElementById(`opt-inv-${device}`)?.value?.trim() ?? "",
+                    notes:           document.getElementById(`opt-notes-${device}`)?.value?.trim() ?? "",
                 };
 
                 const res = await fetch(`${API_BASE}/acquire/${device}`, {
@@ -240,7 +509,7 @@
                     body: JSON.stringify(options)
                 });
                 const data = await res.json();
-                
+
                 if (!res.ok) {
                     alert('Error: ' + data.detail);
                     resetBtn();
@@ -248,34 +517,34 @@
                 }
 
                 const sessionId = data.session_id;
-                
-                // Poll for status
+                updateStepper(device, 'Starting acquisition...', false);
+
                 const pollInterval = setInterval(async () => {
                     try {
                         const statusRes = await fetch(`${API_BASE}/acquire/status/${sessionId}`);
                         if (!statusRes.ok) return;
-                        
                         const statusData = await statusRes.json();
-                        const statusTextEl = document.getElementById(`status-text-${device}`);
-                        
-                        if (statusTextEl) {
-                            statusTextEl.innerText = statusData.message || statusData.status;
-                        }
-                        
+
+                        updateStepper(device, statusData.message, false);
+
                         if (statusData.status === 'completed') {
                             clearInterval(pollInterval);
-                            alert('Acquisition complete: ' + sessionId);
+                            updateStepper(device, 'Pipeline complete!', true);
                             fetchRecords();
-                            resetBtn();
+                            setTimeout(() => {
+                                resetBtn();
+                                showCompletionModal(device, sessionId, statusData.manifest);
+                            }, 1000);
                         } else if (statusData.status === 'failed') {
                             clearInterval(pollInterval);
-                            alert('Acquisition failed: ' + statusData.message);
-                            resetBtn();
+                            document.getElementById(`step-msg-${device}`).textContent = 'Failed: ' + statusData.message;
+                            document.getElementById(`step-msg-${device}`).classList.add('text-red-400');
+                            setTimeout(resetBtn, 3000);
                         }
                     } catch (err) {
                         console.error("Polling error", err);
                     }
-                }, 1000); // Check every second
+                }, 1000);
 
             } catch (e) {
                 alert('Request failed: ' + e.message);
@@ -283,61 +552,134 @@
             }
         }
 
+        let allRecords = {};
+
+        function renderRecords(records) {
+            const container = document.getElementById('recordsContainer');
+            if (Object.keys(records).length === 0) {
+                container.innerHTML = '<p class="text-slate-400 italic py-4 text-center">No records match your search.</p>';
+                return;
+            }
+            container.innerHTML = Object.entries(records).map(([deviceId, sessions]) => {
+                const di = sessions.find(s => s.device_info)?.device_info;
+                const deviceLabel = di ? `${di.manufacturer || ''} ${di.model || ''}`.trim() : '';
+                return `
+                <div class="bg-darkBase/50 border border-slate-700/50 rounded-xl overflow-hidden">
+                    <div class="bg-slate-800/50 px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+                        <div>
+                            <span class="text-darkAccent font-medium font-mono">${deviceId}</span>
+                            ${deviceLabel ? `<span class="text-slate-400 text-sm ml-2">${deviceLabel}</span>` : ''}
+                        </div>
+                        <span class="text-xs text-slate-500">${sessions.length} session${sessions.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="divide-y divide-slate-700/50">
+                        ${sessions.map(s => {
+                            const statusColor = s.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-800/50'
+                                : s.status === 'failed' ? 'bg-red-500/10 text-red-400 border-red-800/50'
+                                : 'bg-yellow-500/10 text-yellow-400 border-yellow-800/50';
+                            return `
+                            <div class="p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors gap-4">
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <p class="text-white font-medium font-mono text-sm">${s.session_id}</p>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${statusColor}">${s.status || 'unknown'}</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-1">
+                                        ${s.timestamp ? new Date(s.timestamp).toLocaleString() : 'Unknown time'}
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-1 flex-wrap justify-end">
+                                    ${s.status === 'completed' ? `
+                                    <a href="/explorer/${deviceId}/${s.session_id}" target="_blank" title="File Explorer"
+                                       class="flex items-center gap-1 bg-slate-700/60 hover:bg-slate-600 text-slate-300 border border-slate-600 px-2 py-1 rounded-md text-xs font-medium transition-colors">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                                        Explorer
+                                    </a>
+                                    <a href="/api/reports/view/${deviceId}/${s.session_id}" target="_blank" title="View Report"
+                                       class="flex items-center gap-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-700/40 px-2 py-1 rounded-md text-xs font-medium transition-colors">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                                        Report
+                                    </a>
+                                    <button onclick="verifyIntegrity('${deviceId}','${s.session_id}',this)" title="Verify SHA-256"
+                                       class="flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-700/40 px-2 py-1 rounded-md text-xs font-medium transition-colors">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                        Verify
+                                    </button>
+                                    <button onclick="reanalyze('${deviceId}','${s.session_id}',this)" title="Re-analyze"
+                                       class="flex items-center gap-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-700/40 px-2 py-1 rounded-md text-xs font-medium transition-colors">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                        Re-analyze
+                                    </button>
+                                    <a href="/api/reports/download/${deviceId}/${s.session_id}" title="Download ZIP"
+                                       class="flex items-center gap-1 bg-slate-700/40 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-600/50 px-2 py-1 rounded-md text-xs font-medium transition-colors">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                        ZIP
+                                    </a>` : ''}
+                                    <button onclick="openCommModal('${deviceId}','${s.session_id}','contacts')" title="Contacts"
+                                       class="text-slate-500 hover:text-emerald-400 p-1.5 rounded hover:bg-emerald-400/10 transition-colors" title="Contacts">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                    </button>
+                                    <button onclick="openCommModal('${deviceId}','${s.session_id}','calls')" title="Call Logs"
+                                       class="text-slate-500 hover:text-sky-400 p-1.5 rounded hover:bg-sky-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+                                    </button>
+                                    <button onclick="openCommModal('${deviceId}','${s.session_id}','sms')" title="SMS"
+                                       class="text-slate-500 hover:text-purple-400 p-1.5 rounded hover:bg-purple-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                                    </button>
+                                    <button onclick="openSearchModal('${deviceId}','${s.session_id}')" title="Search Evidence"
+                                       class="text-slate-500 hover:text-yellow-400 p-1.5 rounded hover:bg-yellow-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </button>
+                                    <button onclick="openLogModal('${deviceId}','${s.session_id}')" title="Acquisition Log"
+                                       class="text-slate-500 hover:text-indigo-400 p-1.5 rounded hover:bg-indigo-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                                    </button>
+                                    <button onclick="openCaseModal('${deviceId}','${s.session_id}','${(s.case_number||'').replace(/'/g,"\\'")}','${(s.investigator||'').replace(/'/g,"\\'")}',\`${(s.notes||'').replace(/`/g,'\\`')}\`)" title="Edit Case"
+                                       class="text-slate-500 hover:text-yellow-400 p-1.5 rounded hover:bg-yellow-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                    </button>
+                                    <button onclick="deleteRecord('${deviceId}','${s.session_id}')" title="Delete"
+                                       class="text-slate-500 hover:text-red-400 p-1.5 rounded hover:bg-red-400/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                    </button>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function filterRecords() {
+            const q = document.getElementById('recordSearch').value.toLowerCase();
+            const statusF = document.getElementById('recordStatusFilter').value;
+            const filtered = {};
+            for (const [deviceId, sessions] of Object.entries(allRecords)) {
+                const matchedSessions = sessions.filter(s => {
+                    const matchesText = !q || deviceId.toLowerCase().includes(q) || s.session_id.toLowerCase().includes(q);
+                    const matchesStatus = !statusF || s.status === statusF;
+                    return matchesText && matchesStatus;
+                });
+                if (matchedSessions.length > 0) filtered[deviceId] = matchedSessions;
+            }
+            renderRecords(filtered);
+        }
+
         async function fetchRecords() {
             const container = document.getElementById('recordsContainer');
-            container.innerHTML = '<div class="flex justify-center py-4"><div class="loader"></div></div>';
-            
+            container.innerHTML = '<div class="flex justify-center py-6"><div class="loader"></div></div>';
             try {
                 const res = await fetch(`${API_BASE}/records`);
                 const data = await res.json();
-                
-                if (Object.keys(data.records).length === 0) {
-                    container.innerHTML = '<p class="text-slate-400 italic">No historical records found.</p>';
+                allRecords = data.records || {};
+                if (Object.keys(allRecords).length === 0) {
+                    container.innerHTML = '<p class="text-slate-400 italic py-4 text-center">No historical records found.</p>';
                     return;
                 }
-
-                container.innerHTML = Object.entries(data.records).map(([deviceId, sessions]) => {
-                    let deviceInfoStr = '';
-                    if (sessions.length > 0 && sessions[0].device_info) {
-                        const mfg = sessions[0].device_info.manufacturer || '';
-                        const mdl = sessions[0].device_info.model || '';
-                        if (mfg || mdl) {
-                            deviceInfoStr = ` - ${mfg} ${mdl}`;
-                        }
-                    }
-                    return `
-                    <div class="bg-darkBase/50 border border-slate-700/50 rounded-xl overflow-hidden">
-                        <div class="bg-slate-800/50 px-4 py-3 border-b border-slate-700/50">
-                            <h3 class="text-darkAccent font-medium font-mono">Device: ${deviceId}<span class="text-slate-400 font-sans ml-2 text-sm">${deviceInfoStr}</span></h3>
-                        </div>
-                        <div class="divide-y divide-slate-700/50">
-                            ${sessions.length === 0 ? '<p class="p-4 text-slate-500 text-sm">No sessions</p>' : sessions.map(s => `
-                                <div class="p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
-                                    <div>
-                                        <p class="text-white font-medium">Session: ${s.session_id}</p>
-                                        <p class="text-sm text-slate-400 mt-1">
-                                            ${s.timestamp ? new Date(s.timestamp).toLocaleString() : 'Unknown Time'}
-                                            ${s.device_info ? ' &bull; ' + (s.device_info.manufacturer || '') + ' ' + (s.device_info.model || '') : ''}
-                                        </p>
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <div class="text-right mr-2">
-                                            <span class="text-xs text-slate-500 font-mono">${s.path}</span>
-                                        </div>
-                                        <a href="/api/reports/download/${deviceId}/${s.session_id}" title="Download ZIP" class="text-slate-500 hover:text-sky-400 p-1.5 rounded-md hover:bg-sky-400/10 transition-colors">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                                        </a>
-                                        <button onclick="deleteRecord('${deviceId}', '${s.session_id}')" class="text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-400/10 transition-colors" title="Delete Record">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `}).join('');
+                filterRecords();
             } catch (e) {
-                container.innerHTML = '<p class="text-red-400">Failed to load records.</p>';
+                container.innerHTML = '<p class="text-red-400 text-center py-4">Failed to load records.</p>';
             }
         }
 
@@ -359,9 +701,558 @@
             }
         }
 
+        async function verifyIntegrity(deviceId, sessionId, btn) {
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader" style="width:14px;height:14px;border-width:2px"></div><span class="ml-1.5">Verifying...</span>';
+
+            try {
+                const res = await fetch(`${API_BASE}/reports/verify/${deviceId}/${sessionId}`);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert('Verification error: ' + data.detail);
+                    return;
+                }
+
+                const { passed, failed, missing, violations, missing_files } = data;
+                let msg = `SHA-256 Integrity Check\n\n✅ Passed : ${passed}\n❌ Failed : ${failed}\n⚠️ Missing: ${missing}`;
+                if (failed > 0) {
+                    msg += '\n\nViolations:';
+                    violations.forEach(v => { msg += `\n  ${v.path}\n  Expected: ${v.expected}\n  Found:    ${v.found}`; });
+                }
+                if (missing > 0) {
+                    msg += '\n\nMissing files:\n  ' + missing_files.join('\n  ');
+                }
+                if (failed === 0 && missing === 0) {
+                    msg += '\n\n✅ All files intact — chain of custody preserved.';
+                }
+                alert(msg);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = orig;
+            }
+        }
+
+        // ── Stats Bar ─────────────────────────────────────────────────────
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/stats`);
+                if (!res.ok) return;
+                const d = await res.json();
+                const items = [
+                    { label: 'Devices',    value: d.total_devices,  color: '#38bdf8' },
+                    { label: 'Sessions',   value: d.total_sessions, color: '#818cf8' },
+                    { label: 'Completed',  value: d.completed,      color: '#34d399' },
+                    { label: 'Failed',     value: d.failed,         color: '#f87171' },
+                    { label: 'Files',      value: d.total_files.toLocaleString(), color: '#f0883e' },
+                    { label: 'Size (MB)',  value: d.total_size_mb.toFixed(1),     color: '#d29922' },
+                    { label: 'Flags',      value: d.total_flags,   color: d.total_flags > 0 ? '#f85149' : '#3fb950' },
+                ];
+                document.getElementById('statsBar').innerHTML = items.map(i => `
+                    <div class="glass rounded-xl p-3 text-center border border-slate-700/30">
+                        <div class="text-xl font-bold" style="color:${i.color}">${i.value}</div>
+                        <div class="text-xs text-slate-400 mt-0.5">${i.label}</div>
+                    </div>`).join('');
+            } catch {}
+        }
+
+        // ── Communication Viewer ──────────────────────────────────────────
+        let commTableData = [];
+
+        const COMM_CONFIG = {
+            contacts: {
+                title: 'Contacts',
+                icon: '<svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>',
+                iconBg: 'bg-emerald-500/15 border-emerald-500/30',
+                key: 'contacts',
+                cols: ['name','number','type'],
+                headers: ['Name','Number','Type'],
+            },
+            calls: {
+                title: 'Call Logs',
+                icon: '<svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>',
+                iconBg: 'bg-sky-500/15 border-sky-500/30',
+                key: 'calls',
+                cols: ['number','name','type','duration','date'],
+                headers: ['Number','Name','Type','Duration','Date'],
+            },
+            sms: {
+                title: 'SMS Messages',
+                icon: '<svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>',
+                iconBg: 'bg-purple-500/15 border-purple-500/30',
+                key: 'sms',
+                cols: ['address','type','date','read','body'],
+                headers: ['From/To','Type','Date','Read','Message'],
+            },
+        };
+
+        async function openCommModal(deviceId, sessionId, type) {
+            const cfg = COMM_CONFIG[type];
+            document.getElementById('commModalTitle').textContent = cfg.title;
+            document.getElementById('commModalSub').textContent = sessionId;
+            document.getElementById('commModalIcon').innerHTML = cfg.icon;
+            document.getElementById('commModalIcon').className = `w-9 h-9 rounded-full flex items-center justify-center border ${cfg.iconBg}`;
+            document.getElementById('commModalCsv').href = `/api/records/${deviceId}/${sessionId}/${type}/csv`;
+            document.getElementById('commSearch').value = '';
+            document.getElementById('commModalBody').innerHTML = '<div class="text-slate-400 text-center py-8">Loading...</div>';
+            const modal = document.getElementById('commModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}/${type}`);
+                if (!res.ok) {
+                    document.getElementById('commModalBody').innerHTML = '<div class="text-slate-500 text-center py-8 italic">No data available for this session.<br>Make sure acquisition included this option.</div>';
+                    return;
+                }
+                const data = await res.json();
+                commTableData = data[cfg.key] || [];
+                renderCommTable(cfg);
+            } catch(e) {
+                document.getElementById('commModalBody').innerHTML = `<div class="text-red-400 text-center py-8">${e.message}</div>`;
+            }
+        }
+
+        let _currentCfg = null;
+        function renderCommTable(cfg) {
+            _currentCfg = cfg;
+            const q = document.getElementById('commSearch').value.toLowerCase();
+            const filtered = q ? commTableData.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q))) : commTableData;
+            if (!filtered.length) {
+                document.getElementById('commModalBody').innerHTML = '<div class="text-slate-500 text-center py-8 italic">No records found.</div>';
+                return;
+            }
+            const rows = filtered.map(r => `<tr class="hover:bg-slate-800/30 border-b border-slate-700/30">${cfg.cols.map(c => `<td class="px-3 py-2 text-slate-300 text-xs max-w-xs truncate" title="${r[c]||''}">${r[c]||'—'}</td>`).join('')}</tr>`).join('');
+            document.getElementById('commModalBody').innerHTML =
+                `<div class="text-xs text-slate-500 mb-2">${filtered.length} record${filtered.length!==1?'s':''}</div>
+                <div class="overflow-x-auto"><table class="w-full text-left border-collapse">
+                    <thead><tr>${cfg.headers.map(h=>`<th class="px-3 py-2 text-xs font-semibold text-slate-400 border-b border-slate-700 whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+        }
+        function filterCommTable() { if (_currentCfg) renderCommTable(_currentCfg); }
+        function closeCommModal() { const m=document.getElementById('commModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+        document.getElementById('commModal').addEventListener('click', e => { if(e.target===document.getElementById('commModal')) closeCommModal(); });
+
+        // ── Evidence Search ───────────────────────────────────────────────
+        function openSearchModal(deviceId, sessionId) {
+            document.getElementById('searchDeviceId').value = deviceId;
+            document.getElementById('searchSessionId').value = sessionId;
+            document.getElementById('searchModalSub').textContent = `Session: ${sessionId}`;
+            document.getElementById('searchQuery').value = '';
+            document.getElementById('searchModalBody').innerHTML = '<div class="text-slate-500 text-center py-8">Enter a keyword to search across contacts, SMS, logcat, packages and more.</div>';
+            const m = document.getElementById('searchModal');
+            m.classList.remove('hidden'); m.classList.add('flex');
+            setTimeout(() => document.getElementById('searchQuery').focus(), 100);
+        }
+        function closeSearchModal() { const m=document.getElementById('searchModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+        document.getElementById('searchModal').addEventListener('click', e => { if(e.target===document.getElementById('searchModal')) closeSearchModal(); });
+
+        async function runSearch() {
+            const deviceId  = document.getElementById('searchDeviceId').value;
+            const sessionId = document.getElementById('searchSessionId').value;
+            const q = document.getElementById('searchQuery').value.trim();
+            if (!q) return;
+            document.getElementById('searchModalBody').innerHTML = '<div class="text-slate-400 text-center py-8">Searching...</div>';
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}/search?q=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                if (!res.ok) { document.getElementById('searchModalBody').innerHTML = `<div class="text-red-400">${data.detail}</div>`; return; }
+                if (!data.results.length) {
+                    document.getElementById('searchModalBody').innerHTML = '<div class="text-slate-500 text-center py-8 italic">No matches found.</div>'; return;
+                }
+                const fileColors = { 'contacts.txt':'#3fb950','sms.txt':'#bc8cff','call_logs.txt':'#58a6ff','logcat.txt':'#d29922' };
+                const html = data.results.map(r => {
+                    const col = fileColors[r.file] || '#8b949e';
+                    const hl = r.line.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'), m => `<mark style="background:#d2992244;color:#d29922;border-radius:2px">${m}</mark>`);
+                    return `<div style="padding:6px 0;border-bottom:1px solid #21262d">
+                        <span style="color:${col};font-weight:700">${r.file}</span>
+                        <span style="color:#444d56;margin-left:8px">L${r.line_number}</span>
+                        <div style="color:#c9d1d9;margin-top:3px;word-break:break-all">${hl}</div></div>`;
+                }).join('');
+                document.getElementById('searchModalBody').innerHTML =
+                    `<div style="color:#8b949e;margin-bottom:8px">${data.total} match${data.total!==1?'es':''} for "<span style="color:#f0883e">${q}</span>"</div>${html}`;
+            } catch(e) {
+                document.getElementById('searchModalBody').innerHTML = `<div class="text-red-400">${e.message}</div>`;
+            }
+        }
+
+        // ── Log Modal ─────────────────────────────────────────────────────
+        async function openLogModal(deviceId, sessionId) {
+            document.getElementById('logModalSession').textContent = sessionId;
+            document.getElementById('logModalBody').innerHTML = '<div class="text-slate-400">Loading...</div>';
+            const modal = document.getElementById('logModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}/log`);
+                if (!res.ok) { document.getElementById('logModalBody').innerHTML = '<div class="text-red-400">Log not available.</div>'; return; }
+                const data = await res.json();
+                const levelColor = { SUCCESS: '#3fb950', WARNING: '#d29922', ERROR: '#f85149', INFO: '#8b949e' };
+                const logHtml = (data.log || []).map(e => {
+                    const c = levelColor[e.level] || '#8b949e';
+                    return `<div style="display:flex;gap:12px;padding:3px 0;border-bottom:1px solid #21262d">
+                        <span style="color:#444d56;white-space:nowrap">${(e.timestamp||'').substring(11,19)}</span>
+                        <span style="color:${c};font-weight:700;min-width:55px">${e.level}</span>
+                        <span style="color:#e6edf3">${e.message}</span></div>`;
+                }).join('');
+                const storHtml = (data.storage_summary||[]).map(s =>
+                    `<div style="display:flex;gap:8px;padding:2px 0"><span style="color:#8b949e;min-width:100px">${s.status}</span><span style="color:#58a6ff">${s.path}</span><span style="color:#3fb950;margin-left:auto">${s.files} files</span></div>`
+                ).join('');
+                const appHtml = (data.app_summary||[]).map(a =>
+                    `<div style="display:flex;gap:8px;padding:2px 0"><span style="color:#8b949e;min-width:100px">${a.status}</span><span style="color:#bc8cff">${a.app}</span><span style="color:#3fb950;margin-left:auto">${a.files} files</span></div>`
+                ).join('');
+                document.getElementById('logModalBody').innerHTML =
+                    `<div style="color:#8b949e;font-weight:700;margin-bottom:6px">ACQUISITION LOG</div>${logHtml||'<div style="color:#444d56">No log entries</div>'}` +
+                    (storHtml ? `<div style="color:#8b949e;font-weight:700;margin:12px 0 6px">STORAGE PULLED</div>${storHtml}` : '') +
+                    (appHtml  ? `<div style="color:#8b949e;font-weight:700;margin:12px 0 6px">APP MEDIA</div>${appHtml}` : '');
+            } catch(e) {
+                document.getElementById('logModalBody').innerHTML = `<div class="text-red-400">${e.message}</div>`;
+            }
+        }
+        function closeLogModal() {
+            const m = document.getElementById('logModal');
+            m.classList.add('hidden'); m.classList.remove('flex');
+        }
+        document.getElementById('logModal').addEventListener('click', e => { if (e.target === document.getElementById('logModal')) closeLogModal(); });
+
+        // ── Case Metadata Modal (placeholder anchor) ───────────────────────
+        function _explorerRedirect(deviceId, sessionId) {
+            window.open(`/explorer/${deviceId}/${sessionId}`, '_blank');
+        }
+
+        // =====================================================================
+        //  FILE EXPLORER (now a standalone page — see /explorer/{device}/{session})
+        // =====================================================================
+        async function openExplorer(deviceId, sessionId) {
+            _exDevice = deviceId; _exSession = sessionId;
+            _exCurrentPath = ''; _exSelectedPath = '';
+            const m = document.getElementById('explorerModal');
+            m.classList.remove('hidden'); m.style.display = 'flex';
+            document.getElementById('explorerToolbar').classList.add('hidden');
+            document.getElementById('explorerPreview').innerHTML = `
+                <div class="text-slate-500 text-sm italic text-center">
+                    <svg class="w-12 h-12 mx-auto mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                    Select a file to preview
+                </div>`;
+            await loadExplorerDir('');
+        }
+
+        function closeExplorer() {
+            const m = document.getElementById('explorerModal');
+            m.style.display = 'none'; m.classList.add('hidden');
+        }
+
+        async function loadExplorerDir(path) {
+            _exCurrentPath = path;
+            const crumb = path ? '/ ' + path.replace(/\//g, ' / ') : '/ (evidence root)';
+            document.getElementById('explorerBreadcrumb').textContent = crumb;
+            const list = document.getElementById('explorerList');
+            list.innerHTML = `<div class="text-xs text-slate-500 p-2 animate-pulse">Loading…</div>`;
+            try {
+                const r = await fetch(`/api/explorer/${_exDevice}/${_exSession}?path=${encodeURIComponent(path)}`);
+                const data = await r.json();
+                renderExplorerList(data.items, path);
+            } catch(e) {
+                list.innerHTML = `<div class="text-red-400 text-xs p-2">Error loading directory.</div>`;
+            }
+        }
+
+        function renderExplorerList(items, currentPath) {
+            const list = document.getElementById('explorerList');
+            list.innerHTML = '';
+            if (currentPath) {
+                const upBtn = document.createElement('button');
+                upBtn.className = 'w-full flex items-center gap-2 text-slate-400 hover:text-white hover:bg-slate-700/50 px-2 py-1.5 rounded text-xs transition-colors';
+                upBtn.innerHTML = `<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg><span>.. (up)</span>`;
+                upBtn.onclick = () => {
+                    const parts = currentPath.split('/'); parts.pop();
+                    loadExplorerDir(parts.join('/'));
+                };
+                list.appendChild(upBtn);
+            }
+            if (!items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'text-slate-600 text-xs px-2 py-4 text-center';
+                empty.textContent = 'Empty directory';
+                list.appendChild(empty); return;
+            }
+            items.forEach(item => {
+                const row = document.createElement('button');
+                const flagColor = item.flag ? ({'HIGH':'text-red-400','MEDIUM':'text-yellow-400','LOW':'text-blue-400','INFO':'text-slate-400'}[item.flag.severity]||'text-slate-400') : '';
+                row.className = `w-full flex items-center gap-2 text-left hover:bg-slate-700/50 px-2 py-1.5 rounded text-xs transition-colors group ${_exSelectedPath === item.path ? 'bg-slate-700/70 text-white' : 'text-slate-300'}`;
+                row.innerHTML = `
+                    ${item.is_dir ? explorerFolderIcon() : explorerFileIcon(item.ext)}
+                    <span class="flex-1 truncate">${escHtml(item.name)}</span>
+                    ${item.flag ? `<span class="flex-shrink-0 ${flagColor}" title="${item.flag.severity}: ${escHtml(item.flag.note||'')}">⚑</span>` : ''}
+                    ${!item.is_dir ? `<span class="flex-shrink-0 text-slate-600 group-hover:text-slate-500">${formatBytes(item.size)}</span>` : ''}`;
+                row.onclick = () => {
+                    if (item.is_dir) { loadExplorerDir(item.path); return; }
+                    list.querySelectorAll('button').forEach(b => b.classList.remove('bg-slate-700/70','text-white'));
+                    row.classList.add('bg-slate-700/70','text-white');
+                    selectExplorerFile(item);
+                };
+                list.appendChild(row);
+            });
+        }
+
+        function selectExplorerFile(item) {
+            _exSelectedPath = item.path;
+            document.getElementById('explorerSelectedName').textContent = item.name;
+            const dlBtn = document.getElementById('explorerDownloadBtn');
+            dlBtn.href = `/api/explorer/${_exDevice}/${_exSession}/download?path=${encodeURIComponent(item.path)}`;
+            dlBtn.setAttribute('download', item.name);
+            document.getElementById('explorerToolbar').classList.remove('hidden');
+            const sev = document.getElementById('flagSeverity'), note = document.getElementById('flagNote');
+            if (item.flag) { sev.value = item.flag.severity; note.value = item.flag.note || ''; }
+            else { sev.value = 'INFO'; note.value = ''; }
+            previewFile(item);
+        }
+
+        function previewFile(item) {
+            const pane = document.getElementById('explorerPreview');
+            const url = `/api/explorer/${_exDevice}/${_exSession}/serve?path=${encodeURIComponent(item.path)}`;
+            const ext = (item.ext || '').toLowerCase();
+            const imageExts = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg'];
+            const videoExts = ['.mp4','.mkv','.avi','.mov','.3gp','.webm'];
+            const audioExts = ['.mp3','.aac','.wav','.ogg','.m4a','.opus','.flac','.amr'];
+            const textExts  = ['.txt','.log','.json','.xml','.csv','.md','.cfg','.conf','.ini'];
+            if (imageExts.includes(ext)) {
+                pane.innerHTML = `<img src="${url}" class="max-w-full max-h-full object-contain rounded shadow-lg" style="max-height:calc(80vh - 180px)" onerror="this.parentElement.innerHTML='<p class=\\'text-red-400 text-sm\\'>Could not load image.</p>'">`;
+            } else if (videoExts.includes(ext)) {
+                pane.innerHTML = `<video controls autoplay class="max-w-full rounded shadow-lg" style="max-height:calc(80vh - 180px)"><source src="${url}" type="${item.media_type||'video/mp4'}">Your browser does not support video.</video>`;
+            } else if (audioExts.includes(ext)) {
+                pane.innerHTML = `<div class="flex flex-col items-center gap-4 w-full px-8">
+                    <svg class="w-20 h-20 text-sky-500/40" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                    <audio controls autoplay class="w-full"><source src="${url}" type="${item.media_type||'audio/mpeg'}">Your browser does not support audio.</audio>
+                    <p class="text-slate-400 text-sm font-mono">${escHtml(item.name)}</p></div>`;
+            } else if (textExts.includes(ext) || item.size < 200000) {
+                pane.innerHTML = `<div class="w-full h-full text-xs text-slate-400 italic text-center py-4 animate-pulse">Loading text…</div>`;
+                fetch(url).then(r=>r.text()).then(text=>{
+                    pane.innerHTML = `<pre class="text-xs text-slate-300 whitespace-pre-wrap break-words bg-darkBase/50 rounded-lg p-4 w-full overflow-auto font-mono" style="max-height:calc(80vh - 180px)">${escHtml(text.substring(0,50000))}${text.length>50000?'\n\n… (truncated)':''}</pre>`;
+                }).catch(()=>{ pane.innerHTML=`<p class="text-red-400 text-sm">Could not load file.</p>`; });
+            } else {
+                pane.innerHTML = `<div class="text-center text-slate-400">
+                    <svg class="w-16 h-16 mx-auto mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <p class="text-sm">No preview for this file type</p>
+                    <p class="text-xs text-slate-600 mt-1">${escHtml(item.name)} (${formatBytes(item.size)})</p>
+                    <a href="/api/explorer/${_exDevice}/${_exSession}/download?path=${encodeURIComponent(item.path)}" download="${escHtml(item.name)}" class="inline-block mt-4 bg-sky-500/20 text-sky-400 border border-sky-700/40 px-4 py-2 rounded-lg text-sm hover:bg-sky-500/30 transition-colors">Download File</a>
+                </div>`;
+            }
+        }
+
+        async function setFlag() {
+            if (!_exSelectedPath) return;
+            await fetch(`/api/explorer/${_exDevice}/${_exSession}/flag`, {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({file_path:_exSelectedPath, severity:document.getElementById('flagSeverity').value, note:document.getElementById('flagNote').value})
+            });
+            await loadExplorerDir(_exCurrentPath);
+        }
+
+        async function clearFlag() {
+            if (!_exSelectedPath) return;
+            await fetch(`/api/explorer/${_exDevice}/${_exSession}/flag?path=${encodeURIComponent(_exSelectedPath)}`, {method:'DELETE'});
+            document.getElementById('flagNote').value = ''; document.getElementById('flagSeverity').value = 'INFO';
+            await loadExplorerDir(_exCurrentPath);
+        }
+
+        async function openFlagsPanel() {
+            const panel = document.getElementById('flagsPanel');
+            panel.classList.remove('hidden'); panel.style.display = 'flex';
+            const body = document.getElementById('flagsPanelBody');
+            body.innerHTML = `<p class="text-slate-500 text-xs animate-pulse">Loading…</p>`;
+            const r = await fetch(`/api/explorer/${_exDevice}/${_exSession}/flags`);
+            const data = await r.json();
+            if (!data.flags.length) { body.innerHTML = `<p class="text-slate-500 text-sm text-center py-8">No flagged files yet.</p>`; return; }
+            const sevCls = {HIGH:'text-red-400 bg-red-900/20 border-red-700/30', MEDIUM:'text-yellow-400 bg-yellow-900/20 border-yellow-700/30', LOW:'text-blue-400 bg-blue-900/20 border-blue-700/30', INFO:'text-slate-400 bg-slate-800/40 border-slate-700/30'};
+            body.innerHTML = data.flags.map(f => `
+                <div class="flex items-start gap-3 border ${sevCls[f.severity]||sevCls.INFO} rounded-lg p-3 mb-2">
+                    <span class="flex-shrink-0 text-xs font-bold uppercase px-1.5 py-0.5 rounded ${sevCls[f.severity]||sevCls.INFO} border">${f.severity}</span>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-mono text-slate-200 truncate" title="${escHtml(f.file_path)}">${escHtml(f.file_path)}</p>
+                        ${f.note?`<p class="text-xs text-slate-500 mt-0.5">${escHtml(f.note)}</p>`:''}
+                        <p class="text-xs text-slate-600 mt-0.5">${f.created_at}</p>
+                    </div>
+                </div>`).join('');
+        }
+
+        function closeFlagsPanel() {
+            const p = document.getElementById('flagsPanel');
+            p.style.display = 'none'; p.classList.add('hidden');
+        }
+
+        function explorerFolderIcon() {
+            return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>`;
+        }
+
+        function explorerFileIcon(ext) {
+            const img = ['.jpg','.jpeg','.png','.gif','.webp','.bmp'];
+            const vid = ['.mp4','.mkv','.avi','.mov','.3gp','.webm'];
+            const aud = ['.mp3','.aac','.wav','.ogg','.m4a','.flac','.amr'];
+            if (img.includes(ext)) return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>`;
+            if (vid.includes(ext)) return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
+            if (aud.includes(ext)) return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>`;
+            return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`;
+        }
+
+        // ── Dropdown menus ─────────────────────────────────────────────────
+        function toggleMenu(sessionId) {
+            const trigger = document.querySelector(`#menu-${sessionId} button`);
+            const dd = document.getElementById('dropdown-' + sessionId);
+            if (!dd || !trigger) return;
+            const isOpen = dd.style.display === 'block';
+            // close all
+            document.querySelectorAll('[id^="dropdown-"]').forEach(el => { el.style.display = 'none'; });
+            if (!isOpen) {
+                const rect = trigger.getBoundingClientRect();
+                dd.style.position = 'fixed';
+                dd.style.zIndex = '9999';
+                dd.style.top = (rect.bottom + 6) + 'px';
+                // prefer right-aligned to trigger
+                const ddWidth = 200;
+                let left = rect.right - ddWidth;
+                if (left < 8) left = 8;
+                dd.style.left = left + 'px';
+                dd.style.right = 'auto';
+                dd.style.display = 'block';
+            }
+        }
+        document.addEventListener('click', e => {
+            if (!e.target.closest('[id^="menu-"]')) {
+                document.querySelectorAll('[id^="dropdown-"]').forEach(el => { el.style.display = 'none'; });
+            }
+        });
+        // Reposition on scroll/resize
+        window.addEventListener('scroll', () => {
+            document.querySelectorAll('[id^="dropdown-"]').forEach(el => { el.style.display = 'none'; });
+        }, true);
+
+        function formatBytes(bytes) {
+            if (!bytes) return '0 B';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+            return (bytes/1048576).toFixed(2) + ' MB';
+        }
+
+        function escHtml(str) {
+            return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // ── Case Metadata Modal ────────────────────────────────────────
+        function openCaseModal(deviceId, sessionId, caseNum, inv, notes) {
+            document.getElementById('caseModalDeviceId').value = deviceId;
+            document.getElementById('caseModalSessionId').value = sessionId;
+            document.getElementById('caseModalCaseNum').value = caseNum || '';
+            document.getElementById('caseModalInv').value = inv || '';
+            document.getElementById('caseModalNotes').value = notes || '';
+            const m = document.getElementById('caseModal');
+            m.classList.remove('hidden'); m.classList.add('flex');
+        }
+        function closeCaseModal() {
+            const m = document.getElementById('caseModal');
+            m.classList.add('hidden'); m.classList.remove('flex');
+        }
+        document.getElementById('caseModal').addEventListener('click', e => { if (e.target === document.getElementById('caseModal')) closeCaseModal(); });
+
+        async function saveCaseMetadata() {
+            const deviceId   = document.getElementById('caseModalDeviceId').value;
+            const sessionId  = document.getElementById('caseModalSessionId').value;
+            const case_number  = document.getElementById('caseModalCaseNum').value.trim();
+            const investigator = document.getElementById('caseModalInv').value.trim();
+            const notes        = document.getElementById('caseModalNotes').value.trim();
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}/metadata`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ case_number, investigator, notes }),
+                });
+                if (res.ok) { closeCaseModal(); fetchRecords(); }
+                else { const d = await res.json(); alert('Error: ' + d.detail); }
+            } catch(e) { alert('Request failed: ' + e.message); }
+        }
+
+        async function showCompletionModal(deviceId, sessionId, manifest) {
+            document.getElementById('modalSessionId').textContent = sessionId;
+            document.getElementById('modalFiles').textContent = '…';
+            document.getElementById('modalSize').textContent = '…';
+            document.getElementById('modalFlags').textContent = '…';
+            const di = manifest?.device_info || {};
+            document.getElementById('modalDevice').textContent =
+                [di.manufacturer, di.model, di.android_version ? `Android ${di.android_version}` : ''].filter(Boolean).join(' · ') || deviceId;
+            document.getElementById('modalViewBtn').href = `/api/reports/view/${deviceId}/${sessionId}`;
+            const modal = document.getElementById('summaryModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            try {
+                const res = await fetch(`${API_BASE}/records/${deviceId}/${sessionId}/summary`);
+                if (res.ok) {
+                    const d = await res.json();
+                    document.getElementById('modalFiles').textContent = (d.total_files ?? 0).toLocaleString();
+                    document.getElementById('modalSize').textContent = (d.total_size_mb ?? 0).toFixed(1);
+                    document.getElementById('modalFlags').textContent = d.total_flags ?? 0;
+                    const flagEl = document.getElementById('modalFlags');
+                    flagEl.style.color = d.total_flags > 0 ? '#d29922' : '#3fb950';
+                }
+            } catch {}
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('summaryModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        document.getElementById('summaryModal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
+        async function reanalyze(deviceId, sessionId, btn) {
+            if (!confirm(`Re-run analysis and regenerate reports for session ${sessionId}?\n\nThis will overwrite the existing analysis.json and dashboard.html.`)) return;
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader" style="width:14px;height:14px;border-width:2px"></div><span class="ml-1.5">Running...</span>';
+
+            try {
+                const res = await fetch(`${API_BASE}/reanalyze/${deviceId}/${sessionId}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) { alert('Error: ' + data.detail); return; }
+
+                const poll = setInterval(async () => {
+                    try {
+                        const sr = await fetch(`${API_BASE}/acquire/status/${sessionId}`);
+                        const sd = await sr.json();
+                        if (sd.status === 'completed') {
+                            clearInterval(poll);
+                            btn.disabled = false;
+                            btn.innerHTML = orig;
+                            alert('Re-analysis complete. Reload the report to see updated results.');
+                            fetchRecords();
+                        } else if (sd.status === 'failed') {
+                            clearInterval(poll);
+                            btn.disabled = false;
+                            btn.innerHTML = orig;
+                            alert('Re-analysis failed: ' + sd.message);
+                        }
+                    } catch { clearInterval(poll); btn.disabled = false; btn.innerHTML = orig; }
+                }, 1500);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+                btn.disabled = false;
+                btn.innerHTML = orig;
+            }
+        }
+
         // Init
+        loadStats();
         fetchDevices();
         fetchRecords();
+        // Auto-refresh devices every 15s (silent after first load)
+        setInterval(fetchDevices, 15000);
+        // Refresh stats every 30s
+        setInterval(loadStats, 30000);
     </script>
 </body>
 </html>

@@ -59,7 +59,7 @@ class HashingModule:
 
         Returns
         -------
-        dict mapping relative-path strings → {sha256, size_bytes, hashed_at}
+        dict mapping relative-path strings -> {sha256, size_bytes, hashed_at}
         """
         files = [p for p in root.rglob("*") if p.is_file()]
         iterator = tqdm(files, desc="  Hashing files", unit="file") if _TQDM else files

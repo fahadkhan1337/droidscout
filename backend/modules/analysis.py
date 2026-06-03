@@ -240,11 +240,126 @@ class AnalysisModule:
         -------------------------------------------------------
         """
         flags = []
+        now = datetime.now()
 
-        # ── Write your implementation below this line ──────────────────
+        # ── HIGH severity ───────────────────────────────────────────────
 
+        # Files modified in the last 24 hours (very fresh evidence)
+        cutoff_24h = now - timedelta(hours=24)
+        very_recent = []
+        for f in files:
+            try:
+                if datetime.fromisoformat(f["modified_time"]) >= cutoff_24h:
+                    very_recent.append(f)
+            except (ValueError, TypeError):
+                pass
+        if very_recent:
+            flags.append({
+                "severity": "HIGH",
+                "type": "VERY_RECENT_FILES",
+                "description": f"{len(very_recent)} file(s) were modified in the last 24 hours — potential active evidence.",
+                "file": very_recent[0]["path"] if very_recent else None,
+            })
 
-        # ── End of your implementation ─────────────────────────────────
+        # APK files anywhere in sdcard (potential sideloaded malware)
+        apk_files = [f for f in files if f.get("extension") == ".apk"]
+        for apk in apk_files:
+            flags.append({
+                "severity": "HIGH",
+                "type": "APK_SIDELOAD",
+                "description": f"APK file found outside Play Store — possible sideloaded or malicious app.",
+                "file": apk["path"],
+            })
+
+        # Files larger than 500 MB (bulk data exfiltration indicator)
+        for f in files:
+            if f.get("size_mb", 0) >= 500:
+                flags.append({
+                    "severity": "HIGH",
+                    "type": "MASSIVE_FILE",
+                    "description": f"File exceeds 500 MB ({f['size_mb']:.1f} MB) — possible bulk data exfiltration.",
+                    "file": f["path"],
+                })
+
+        # ── MEDIUM severity ─────────────────────────────────────────────
+
+        # Files with no extension (possible obfuscation / hidden data)
+        no_ext = [f for f in files if not f.get("extension") and not f["name"].startswith(".")]
+        if no_ext:
+            flags.append({
+                "severity": "MEDIUM",
+                "type": "NO_EXTENSION_FILES",
+                "description": f"{len(no_ext)} file(s) have no extension — possible obfuscation or renamed files.",
+                "file": no_ext[0]["path"] if no_ext else None,
+            })
+
+        # Large non-video files > 100 MB (suspicious)
+        for f in large:
+            if f.get("category") not in ("videos",) and f.get("size_mb", 0) >= 100:
+                flags.append({
+                    "severity": "MEDIUM",
+                    "type": "LARGE_NON_VIDEO",
+                    "description": f"Non-video file exceeds 100 MB ({f['size_mb']:.1f} MB) — warrants investigation.",
+                    "file": f["path"],
+                })
+
+        # High-volume WhatsApp media (> 500 files)
+        wa_files = [f for f in files if "whatsapp" in f.get("path", "").lower()]
+        if len(wa_files) > 500:
+            flags.append({
+                "severity": "MEDIUM",
+                "type": "HIGH_VOLUME_WHATSAPP",
+                "description": f"{len(wa_files)} WhatsApp media files found — unusually high communication volume.",
+                "file": None,
+            })
+
+        # Database files (SQLite) — may contain app data
+        db_files = [f for f in files if f.get("extension") in (".db", ".sqlite", ".sqlite3")]
+        if db_files:
+            flags.append({
+                "severity": "MEDIUM",
+                "type": "DATABASE_FILES",
+                "description": f"{len(db_files)} database file(s) found — may contain messages, contacts or app data.",
+                "file": db_files[0]["path"],
+            })
+
+        # ── LOW severity ────────────────────────────────────────────────
+
+        # Hidden files (name starts with '.')
+        hidden = [f for f in files if f["name"].startswith(".")]
+        if hidden:
+            flags.append({
+                "severity": "LOW",
+                "type": "HIDDEN_FILES",
+                "description": f"{len(hidden)} hidden file(s) found (dot-prefixed names) — intentional concealment possible.",
+                "file": hidden[0]["path"],
+            })
+
+        # Duplicate filenames in different directories
+        from collections import Counter
+        name_counts = Counter(f["name"] for f in files)
+        dupes = [name for name, count in name_counts.items() if count > 1]
+        if dupes:
+            flags.append({
+                "severity": "LOW",
+                "type": "DUPLICATE_FILENAMES",
+                "description": f"{len(dupes)} filename(s) appear in multiple directories — possible copied/moved evidence.",
+                "file": None,
+            })
+
+        # Archive files in Downloads (potential data packaging)
+        archive_in_downloads = [
+            f for f in files
+            if f.get("extension") in (".zip", ".rar", ".tar", ".gz", ".7z")
+            and "download" in f.get("path", "").lower()
+        ]
+        for arc in archive_in_downloads:
+            flags.append({
+                "severity": "LOW",
+                "type": "ARCHIVE_IN_DOWNLOADS",
+                "description": f"Archive file in Downloads folder — possible data packaging for exfiltration.",
+                "file": arc["path"],
+            })
 
         return flags
 

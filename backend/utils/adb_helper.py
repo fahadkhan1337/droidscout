@@ -170,6 +170,9 @@ class ADBHelper:
             "fingerprint":     raw_props.get("ro.build.fingerprint", ""),
             "cpu_abi":         raw_props.get("ro.product.cpu.abi", ""),
             "locale":          raw_props.get("ro.product.locale", ""),
+            "carrier":         raw_props.get("gsm.operator.alpha", ""),
+            "sim_state":       raw_props.get("gsm.sim.state", ""),
+            "network_type":    raw_props.get("gsm.network.type", ""),
         }
 
     def get_battery_info(self) -> str:
@@ -192,3 +195,159 @@ class ADBHelper:
             timeout=180
         )
         return stdout
+
+    # ------------------------------------------------------------------
+    # Network information
+    # ------------------------------------------------------------------
+
+    def get_wifi_info(self) -> str:
+        """Return dumpsys wifi output (SSID history, connection state)."""
+        _, output = self.shell("dumpsys wifi", timeout=20)
+        return output
+
+    def get_network_info(self) -> str:
+        """Return IP routing table and interface config."""
+        _, routes = self.shell("ip route", timeout=10)
+        _, ifaces = self.shell("ip addr", timeout=10)
+        return f"=== IP ROUTES ===\n{routes}\n\n=== IP ADDRESSES ===\n{ifaces}"
+
+    # ------------------------------------------------------------------
+    # Screenshot
+    # ------------------------------------------------------------------
+
+    def take_screenshot(self, local_path: str) -> tuple:
+        """
+        Capture the device screen and save as PNG at local_path.
+        Uses exec-out to stream raw bytes without writing to device storage.
+        Returns (success: bool, message: str).
+        """
+        import subprocess, os
+        args = ["adb"]
+        if self.serial:
+            args += ["-s", self.serial]
+        args += ["exec-out", "screencap", "-p"]
+        try:
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            result = subprocess.run(args, capture_output=True, timeout=30)
+            if result.returncode == 0 and result.stdout:
+                with open(local_path, "wb") as f:
+                    f.write(result.stdout)
+                return True, f"Screenshot saved ({len(result.stdout)} bytes)"
+            return False, result.stderr.decode(errors="replace").strip()
+        except Exception as e:
+            return False, str(e)
+
+    # ------------------------------------------------------------------
+    # Running processes
+    # ------------------------------------------------------------------
+
+    def get_running_processes(self) -> str:
+        """Return process list via `ps -A`."""
+        _, output = self.shell("ps -A", timeout=20)
+        if not output.strip():
+            _, output = self.shell("ps", timeout=20)
+        return output
+
+    # ------------------------------------------------------------------
+    # Permission helpers (Android 10+ restricts content providers)
+    # ------------------------------------------------------------------
+
+    def _grant(self, permission: str):
+        """Grant a permission to com.android.shell (needed on Android 10+)."""
+        self._run(["adb", "shell", "pm", "grant", "com.android.shell", permission], timeout=10)
+
+    def _revoke(self, permission: str):
+        """Revoke a permission from com.android.shell after querying."""
+        self._run(["adb", "shell", "pm", "revoke", "com.android.shell", permission], timeout=10)
+
+    def _query_with_permission(self, permission: str, uri: str,
+                                projection: str, extra: str = "", timeout: int = 30) -> str:
+        """Grant permission, run content query, revoke permission."""
+        self._grant(permission)
+        _, output = self.shell(
+            f"content query --uri {uri} --projection {projection} {extra}",
+            timeout=timeout,
+        )
+        self._revoke(permission)
+        return output
+
+    # ------------------------------------------------------------------
+    # Contacts / Call logs / SMS
+    # ------------------------------------------------------------------
+
+    def get_contacts(self) -> str:
+        """Query phone contacts — grants READ_CONTACTS for Android 10+."""
+        output = self._query_with_permission(
+            "android.permission.READ_CONTACTS",
+            "content://contacts/phones",
+            "display_name:number:type",
+        )
+        # Fallback: try SIM phonebook
+        if not output.strip() or "Row:" not in output:
+            _, sim = self.shell(
+                "content query --uri content://icc/adn --projection name:number",
+                timeout=20,
+            )
+            if "Row:" in sim:
+                output = (output + "\n" + sim).strip()
+        return output
+
+    def get_call_logs(self) -> str:
+        """Query call log — grants READ_CALL_LOG for Android 10+."""
+        return self._query_with_permission(
+            "android.permission.READ_CALL_LOG",
+            "content://call_log/calls",
+            "number:duration:type:date:name",
+            extra="--sort 'date DESC' --limit 500",
+        )
+
+    def get_sms(self) -> str:
+        """Query SMS — grants READ_SMS for Android 10+."""
+        phone_sms = self._query_with_permission(
+            "android.permission.READ_SMS",
+            "content://sms",
+            "address:body:date:type:read",
+            extra="--sort 'date DESC' --limit 500",
+        )
+        # Also try SIM SMS
+        _, sim_sms = self.shell(
+            "content query --uri content://icc/sms --projection address:body:date:type",
+            timeout=20,
+        )
+        if "Row:" in sim_sms:
+            phone_sms = (phone_sms + "\n" + sim_sms).strip()
+        return phone_sms
+
+    def get_phone_number(self) -> str:
+        """Try multiple methods to get the device's own phone number."""
+        # Method 1: telephony registry
+        _, out = self.shell("dumpsys telephony.registry", timeout=15)
+        import re
+        match = re.search(r'mPhoneNumber\s*=\s*([+\d]+)', out)
+        if match:
+            return match.group(1)
+        # Method 2: iphonesubinfo service
+        _, out2 = self.shell("service call iphonesubinfo 1", timeout=10)
+        parts = re.findall(r"'(.*?)'", out2)
+        number = "".join(parts).strip().replace(".", "")
+        if number and number not in ("", "0"):
+            return number
+        # Method 3: settings
+        _, out3 = self.shell("settings get global sim_state", timeout=5)
+        return out3.strip() or "Unknown"
+
+    def get_sim_info(self) -> str:
+        """Get SIM / carrier information."""
+        fields = [
+            ("Carrier",       "getprop gsm.operator.alpha"),
+            ("MCC/MNC",       "getprop gsm.operator.numeric"),
+            ("Network Type",  "getprop gsm.network.type"),
+            ("SIM State",     "getprop gsm.sim.state"),
+            ("SIM Serial",    "getprop ro.serialno"),
+            ("IMEI",          "service call iphonesubinfo 1"),
+        ]
+        lines = []
+        for label, cmd in fields:
+            _, out = self.shell(cmd, timeout=8)
+            lines.append(f"{label}: {out.strip()}")
+        return "\n".join(lines)

@@ -86,8 +86,8 @@ class AcquisitionModule:
         print("\n[>] Checking ADB device connection...")
         if not self.adb.check_device_connected():
             print("[-] No authorised device found.")
-            print("    → Enable USB Debugging on the device")
-            print("    → Accept the 'Allow USB Debugging' prompt on screen")
+            print("    -> Enable USB Debugging on the device")
+            print("    -> Accept the 'Allow USB Debugging' prompt on screen")
             return False
         devices = self.adb.get_connected_devices()
         self._log(f"Device online: {devices[0]}", "SUCCESS")
@@ -165,11 +165,11 @@ class AcquisitionModule:
             count = sum(1 for p in local_dest.rglob("*") if p.is_file())
             result["status"]       = "success"
             result["files_pulled"] = count
-            self._log(f"  → {count} file(s) pulled from {remote}", "SUCCESS")
+            self._log(f"  -> {count} file(s) pulled from {remote}", "SUCCESS")
         else:
             result["status"] = "error"
             result["error"]  = message
-            self._log(f"  → Failed: {message}", "ERROR")
+            self._log(f"  -> Failed: {message}", "ERROR")
 
         return result
 
@@ -198,6 +198,77 @@ class AcquisitionModule:
         return results
 
     # ------------------------------------------------------------------
+    # Step 6 — Network information
+    # ------------------------------------------------------------------
+
+    def acquire_network_info(self):
+        print("\n[>] Acquiring network information...")
+        self._status_cb("Acquiring Wi-Fi and network info...")
+        wifi = self.adb.get_wifi_info()
+        (self.evidence_dir / "wifi_info.txt").write_text(wifi, encoding="utf-8", errors="replace")
+        net = self.adb.get_network_info()
+        (self.evidence_dir / "network_info.txt").write_text(net, encoding="utf-8", errors="replace")
+        self._log("wifi_info.txt and network_info.txt saved", "SUCCESS")
+
+    # ------------------------------------------------------------------
+    # Step 7 — Screenshot
+    # ------------------------------------------------------------------
+
+    def acquire_screenshot(self):
+        print("\n[>] Taking device screenshot...")
+        self._status_cb("Capturing device screenshot...")
+        path = str(self.evidence_dir / "screenshot.png")
+        success, message = self.adb.take_screenshot(path)
+        if success:
+            self._log(f"screenshot.png saved — {message}", "SUCCESS")
+        else:
+            self._log(f"Screenshot failed: {message}", "WARNING")
+
+    # ------------------------------------------------------------------
+    # Step 8 — Running processes
+    # ------------------------------------------------------------------
+
+    def acquire_processes(self):
+        print("\n[>] Acquiring running processes...")
+        self._status_cb("Capturing running processes...")
+        output = self.adb.get_running_processes()
+        (self.evidence_dir / "running_processes.txt").write_text(output, encoding="utf-8", errors="replace")
+        self._log(f"running_processes.txt saved ({output.count(chr(10))} processes)", "SUCCESS")
+
+    # ------------------------------------------------------------------
+    # Step 9 — Contacts / Call logs / SMS
+    # ------------------------------------------------------------------
+
+    def acquire_communication_data(self):
+        print("\n[>] Acquiring communication data (contacts, calls, SMS)...")
+
+        self._status_cb("Extracting phone number & SIM info...")
+        phone_number = self.adb.get_phone_number()
+        sim_info = self.adb.get_sim_info()
+        (self.evidence_dir / "sim_info.txt").write_text(
+            f"Phone Number: {phone_number}\n\n{sim_info}", encoding="utf-8", errors="replace"
+        )
+        self._log(f"sim_info.txt saved (number: {phone_number})", "SUCCESS")
+
+        self._status_cb("Querying contacts (granting READ_CONTACTS)...")
+        contacts = self.adb.get_contacts()
+        (self.evidence_dir / "contacts.txt").write_text(contacts, encoding="utf-8", errors="replace")
+        count = contacts.count("Row:")
+        self._log(f"contacts.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+
+        self._status_cb("Querying call logs (granting READ_CALL_LOG)...")
+        calls = self.adb.get_call_logs()
+        (self.evidence_dir / "call_logs.txt").write_text(calls, encoding="utf-8", errors="replace")
+        count = calls.count("Row:")
+        self._log(f"call_logs.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+
+        self._status_cb("Querying SMS (granting READ_SMS)...")
+        sms = self.adb.get_sms()
+        (self.evidence_dir / "sms.txt").write_text(sms, encoding="utf-8", errors="replace")
+        count = sms.count("Row:")
+        self._log(f"sms.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+
+    # ------------------------------------------------------------------
     # Master entry point
     # ------------------------------------------------------------------
 
@@ -207,10 +278,15 @@ class AcquisitionModule:
 
         Pipeline
         --------
-        verify device → device info → logcat → user storage → app media → manifest
+        verify device -> device info -> logcat -> network -> screenshot ->
+        processes -> contacts/sms -> user storage -> app media -> manifest
         """
         if options is None:
-            options = {"user_storage": True, "app_media": True, "metadata_logcat": True}
+            options = {
+                "user_storage": True, "app_media": True, "metadata_logcat": True,
+                "network_info": True, "screenshot": True, "processes": True,
+                "communication": True,
+            }
 
         print(f"\n{'='*60}")
         print("  DroidScout  —  Acquisition Module")
@@ -229,6 +305,18 @@ class AcquisitionModule:
         if options.get("metadata_logcat", True):
             device_info = self.acquire_device_info()
             self.acquire_logcat()
+
+        if options.get("network_info", True):
+            self.acquire_network_info()
+
+        if options.get("screenshot", True):
+            self.acquire_screenshot()
+
+        if options.get("processes", True):
+            self.acquire_processes()
+
+        if options.get("communication", True):
+            self.acquire_communication_data()
 
         if options.get("user_storage", True):
             self._status_cb("Pulling user storage directories...")

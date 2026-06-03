@@ -28,13 +28,16 @@ class ReportingModule:
         self.analysis: dict = {}
         self.hash_data: dict = {}
         self.device_info: dict = {}
+        self.manifest: dict = {}
+        self.case_meta: dict = {}
+        self.packages: list = []
 
     # ------------------------------------------------------------------
     # Data loading
     # ------------------------------------------------------------------
 
     def load_data(self):
-        """Load analysis.json, hashes.json, and device_info.json."""
+        """Load analysis.json, hashes.json, device_info.json, and case metadata."""
         analysis_path = self.reports_dir / "analysis.json"
         if analysis_path.exists():
             self.analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
@@ -46,6 +49,36 @@ class ReportingModule:
         device_path = self.output_dir / "evidence" / "device_info.json"
         if device_path.exists():
             self.device_info = json.loads(device_path.read_text(encoding="utf-8"))
+
+        manifest_path = self.output_dir / "evidence" / "acquisition_manifest.json"
+        if manifest_path.exists():
+            self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        else:
+            self.manifest = {}
+
+        case_path = self.output_dir / "case_metadata.json"
+        if case_path.exists():
+            self.case_meta = json.loads(case_path.read_text(encoding="utf-8"))
+        else:
+            self.case_meta = {}
+
+        pkg_path = self.output_dir / "evidence" / "installed_packages.txt"
+        if pkg_path.exists():
+            raw = pkg_path.read_text(encoding="utf-8", errors="replace")
+            pkgs = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("package:"):
+                    # format: package:/path/to/app.apk=com.package.name
+                    part = line[len("package:"):]
+                    if "=" in part:
+                        _, pkg_name = part.rsplit("=", 1)
+                    else:
+                        pkg_name = part.split("/")[-1].replace(".apk", "")
+                    pkgs.append(pkg_name.strip())
+            self.packages = sorted(pkgs)
+        else:
+            self.packages = []
 
     # ------------------------------------------------------------------
     # 1. JSON report
@@ -81,7 +114,7 @@ class ReportingModule:
 
         path = self.reports_dir / "report.json"
         path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
-        print(f"[+] JSON report   → {path}")
+        print(f"[+] JSON report   -> {path}")
         return path
 
     # ------------------------------------------------------------------
@@ -118,7 +151,7 @@ class ReportingModule:
                     "path":          f.get("path", ""),
                 })
 
-        print(f"[+] CSV report    → {path}")
+        print(f"[+] CSV report    -> {path}")
         return path
 
     # ------------------------------------------------------------------
@@ -138,6 +171,9 @@ class ReportingModule:
             "device_name":     "Device Name",
             "fingerprint":     "Build Fingerprint",
             "cpu_abi":         "CPU ABI",
+            "carrier":         "Carrier",
+            "sim_state":       "SIM State",
+            "network_type":    "Network Type",
         }
         rows = []
         for k, label in labels.items():
@@ -184,22 +220,55 @@ class ReportingModule:
         flags = self.analysis.get("forensic_flags", [])
         if not flags:
             return '<div class="empty">No forensic flags detected</div>'
-        items = []
+
+        sev_cfg = {
+            "HIGH":   {"color": "#f85149", "bg": "rgba(248,81,73,.08)",   "bd": "rgba(248,81,73,.25)"},
+            "MEDIUM": {"color": "#d29922", "bg": "rgba(210,153,34,.08)",  "bd": "rgba(210,153,34,.25)"},
+            "LOW":    {"color": "#58a6ff", "bg": "rgba(88,166,255,.08)",  "bd": "rgba(88,166,255,.25)"},
+        }
+
+        # Group by severity
+        grouped: dict = {"HIGH": [], "MEDIUM": [], "LOW": []}
         for fl in flags:
-            sev  = fl.get("severity", "LOW")
-            file_html = (
-                f'<div class="flag-file">{fl["file"]}</div>'
-                if fl.get("file") else ""
+            sev = fl.get("severity", "LOW")
+            grouped.setdefault(sev, []).append(fl)
+
+        sections = []
+        for sev in ("HIGH", "MEDIUM", "LOW"):
+            group = grouped.get(sev, [])
+            if not group:
+                continue
+            cfg = sev_cfg.get(sev, sev_cfg["LOW"])
+            rows = []
+            for fl in group:
+                file_part = (
+                    f'<span style="font-family:monospace;font-size:10px;color:#8b949e;'
+                    f'margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+                    f'max-width:260px;display:inline-block;vertical-align:middle" title="{fl.get("file","")}">'
+                    f'— {fl["file"].split("/")[-1] if fl.get("file") else ""}</span>'
+                ) if fl.get("file") else ""
+                rows.append(
+                    f'<div style="display:flex;align-items:baseline;gap:8px;padding:5px 10px;'
+                    f'border-bottom:1px solid {cfg["bd"]}22;font-size:12px">'
+                    f'<span style="color:{cfg["color"]};font-weight:700;font-size:10px;'
+                    f'white-space:nowrap;min-width:140px">{fl.get("type","")}</span>'
+                    f'<span style="color:#8b949e;flex:1">{fl.get("description","")}</span>'
+                    f'{file_part}</div>'
+                )
+            header = (
+                f'<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;'
+                f'background:{cfg["bg"]};border-bottom:1px solid {cfg["bd"]}">'
+                f'<span style="background:{cfg["color"]};color:#fff;font-size:10px;font-weight:800;'
+                f'padding:2px 8px;border-radius:4px">{sev}</span>'
+                f'<span style="color:{cfg["color"]};font-weight:600;font-size:12px">'
+                f'{len(group)} flag{"s" if len(group)>1 else ""}</span></div>'
             )
-            items.append(
-                f'<div class="flag {sev}">'
-                f'<span class="fbadge">{sev}</span>'
-                f'<div class="fcontent">'
-                f'<div class="ftype">{fl.get("type","")}</div>'
-                f'<div class="fdesc">{fl.get("description","")}</div>'
-                f'{file_html}</div></div>'
+            sections.append(
+                f'<div style="border:1px solid {cfg["bd"]};border-radius:6px;'
+                f'overflow:hidden;margin-bottom:8px">'
+                f'{header}{"".join(rows)}</div>'
             )
-        return "\n".join(items)
+        return "\n".join(sections)
 
     def _file_table(self, files: list, empty: str = "No files") -> str:
         if not files:
@@ -219,6 +288,43 @@ class ReportingModule:
             '<th>Modified</th><th>Path</th>'
             '</tr></thead><tbody>' + rows + '</tbody></table>'
         )
+
+    def _packages_html(self) -> str:
+        if not self.packages:
+            return '<div class="empty">No package list available</div>'
+        # Color third-party packages differently (not com.android / com.google / com.samsung etc.)
+        system_prefixes = ("com.android", "com.google", "com.samsung", "com.qualcomm",
+                           "com.mediatek", "com.miui", "android", "com.huawei",
+                           "com.lge", "com.htc", "com.sony", "com.oppo", "com.vivo")
+        items = []
+        for pkg in self.packages:
+            is_system = pkg.startswith(system_prefixes)
+            color = "#8b949e" if is_system else "#58a6ff"
+            items.append(
+                f'<div style="font-family:monospace;font-size:11px;color:{color};'
+                f'padding:2px 0;border-bottom:1px solid #21262d22;white-space:nowrap;'
+                f'overflow:hidden;text-overflow:ellipsis" title="{pkg}">{pkg}</div>'
+            )
+        return "\n".join(items)
+
+    def _acq_log_html(self) -> str:
+        log = self.manifest.get("log", [])
+        if not log:
+            return '<div class="empty">No acquisition log available</div>'
+        color_map = {"SUCCESS": "#3fb950", "WARNING": "#d29922", "ERROR": "#f85149", "INFO": "#8b949e"}
+        rows = []
+        for entry in log:
+            level = entry.get("level", "INFO")
+            color = color_map.get(level, "#8b949e")
+            ts = entry.get("timestamp", "")[:19]
+            msg = entry.get("message", "")
+            rows.append(
+                f'<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid #21262d;font-size:12px">'
+                f'<span style="color:#444d56;white-space:nowrap;flex-shrink:0">{ts}</span>'
+                f'<span style="color:{color};font-weight:700;flex-shrink:0;min-width:55px">{level}</span>'
+                f'<span style="color:#e6edf3">{msg}</span></div>'
+            )
+        return "\n".join(rows)
 
     def _hash_samples(self) -> str:
         hashes = self.hash_data.get("hashes", {})
@@ -254,9 +360,23 @@ class ReportingModule:
         tl_labels  = json.dumps(list(timeline.keys()))
         tl_values  = json.dumps(list(timeline.values()))
 
-        gen_time   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        flag_count = len(flags)
-        flag_color = "var(--red)" if flag_count else "var(--green)"
+        gen_time      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        flag_count    = len(flags)
+        flag_color    = "var(--red)" if flag_count else "var(--green)"
+        case_number   = self.case_meta.get("case_number", "") or "N/A"
+        investigator  = self.case_meta.get("investigator", "") or "N/A"
+        notes         = self.case_meta.get("notes", "") or ""
+        acq_time      = self.manifest.get("acquisition_time", "N/A")
+        acq_duration  = self.manifest.get("duration_seconds", "N/A")
+        # Extract device_id / session_id from output path for explorer links
+        parts = self.output_dir.parts
+        try:
+            out_idx   = next(i for i, p in enumerate(parts) if p == "output")
+            _device   = parts[out_idx + 1]
+            _session  = parts[out_idx + 2]
+        except Exception:
+            _device, _session = "", ""
+        explorer_url = f"/explorer/{_device}/{_session}" if _device and _session else "#"
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -391,6 +511,22 @@ body{{background:var(--bg0);color:var(--t1);font-family:-apple-system,BlinkMacSy
 .empty{{color:var(--t2);font-style:italic;padding:20px 0;text-align:center}}
 .footer{{text-align:center;padding:32px;color:var(--t2);font-size:12px;
          border-top:1px solid var(--bd);margin-top:32px}}
+/* ── Print ── */
+@media print{{
+  body{{background:#fff;color:#000}}
+  .hdr{{position:static;background:#f5f5f5;border-bottom:2px solid #000}}
+  .logo{{color:#000}}.logo span{{color:#333}}
+  .hdr-badge,.hdr-meta{{color:#333}}
+  .card,.info-row,.app-card{{background:#fff;border:1px solid #ccc}}
+  .card-val,.card-title,.ik,.iv,.app-name,.ftype{{color:#000}}
+  .fdesc,.card-sub,.t2{{color:#555}}
+  .flag.HIGH{{background:#fff0ef;border-color:#c00}}
+  .flag.MEDIUM{{background:#fffbea;border-color:#a66}}
+  .flag.LOW{{background:#f0f8ff;border-color:#369}}
+  canvas{{max-width:100%!important}}
+  .sec-title::before{{background:#000}}
+  .sec-title{{color:#000}}
+}}
 </style>
 </head>
 <body>
@@ -401,13 +537,43 @@ body{{background:var(--bg0);color:var(--t1);font-family:-apple-system,BlinkMacSy
     <div class="logo">Droid<span>Scout</span></div>
     <div class="hdr-badge">FORENSIC REPORT</div>
   </div>
-  <div class="hdr-meta">
-    Generated: {gen_time}<br>
-    Tool: DroidScout v1.0.0 &nbsp;|&nbsp; Algorithm: SHA-256
+  <div style="display:flex;align-items:center;gap:10px">
+    <a href="{explorer_url}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:6px;background:rgba(88,166,255,.12);color:var(--blue);
+              border:1px solid rgba(88,166,255,.3);padding:6px 14px;border-radius:6px;
+              font-size:12px;font-weight:600;text-decoration:none;transition:.15s;"
+       onmouseover="this.style.background='rgba(88,166,255,.25)'" onmouseout="this.style.background='rgba(88,166,255,.12)'">
+      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+      Gallery
+    </a>
+    <a href="{explorer_url}?mode=explorer" target="_blank"
+       style="display:inline-flex;align-items:center;gap:6px;background:rgba(63,185,80,.1);color:#3fb950;
+              border:1px solid rgba(63,185,80,.3);padding:6px 14px;border-radius:6px;
+              font-size:12px;font-weight:600;text-decoration:none;transition:.15s;"
+       onmouseover="this.style.background='rgba(63,185,80,.22)'" onmouseout="this.style.background='rgba(63,185,80,.1)'">
+      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+      File Explorer
+    </a>
+    <div class="hdr-meta" style="text-align:right">
+      Generated: {gen_time}<br>
+      Tool: DroidScout v1.0.0 &nbsp;|&nbsp; Algorithm: SHA-256
+    </div>
   </div>
 </div>
 
 <div class="wrap">
+
+<!-- ═══ CASE METADATA ════════════════════════════════════════════════════ -->
+<div class="sec-title">Case Information</div>
+<div class="info-grid mb" style="grid-template-columns:repeat(3,1fr)">
+  <div class="info-row"><span class="ik">Case Number</span><span class="iv">{case_number}</span></div>
+  <div class="info-row"><span class="ik">Investigator</span><span class="iv">{investigator}</span></div>
+  <div class="info-row"><span class="ik">Acquired At</span><span class="iv">{acq_time[:19] if acq_time != 'N/A' else 'N/A'}</span></div>
+  <div class="info-row"><span class="ik">Duration</span><span class="iv">{acq_duration}s</span></div>
+  <div class="info-row"><span class="ik">Generated At</span><span class="iv">{gen_time}</span></div>
+  <div class="info-row"><span class="ik">Tool</span><span class="iv">DroidScout v1.0.0</span></div>
+</div>
+{f'<div class="card mb" style="background:rgba(88,166,255,.05);border-color:rgba(88,166,255,.2)"><div class="card-title">Case Notes</div><div style="font-size:13px;color:#e6edf3;margin-top:4px">{notes}</div></div>' if notes else ''}
 
 <!-- ═══ DEVICE INFO ══════════════════════════════════════════════════════ -->
 <div class="sec-title">Device Information</div>
@@ -465,10 +631,20 @@ body{{background:var(--bg0);color:var(--t1);font-family:-apple-system,BlinkMacSy
 {self._app_cards()}
 </div>
 
+<!-- ═══ INSTALLED PACKAGES ═══════════════════════════════════════════════ -->
+<div class="sec-title">Installed Packages ({len(self.packages)})</div>
+<div class="card mb" style="padding:0;overflow:hidden">
+  <div style="max-height:220px;overflow-y:auto;padding:10px 14px">
+    {self._packages_html()}
+  </div>
+</div>
+
 <!-- ═══ FORENSIC FLAGS ═══════════════════════════════════════════════════ -->
 <div class="sec-title">Forensic Flags ({flag_count})</div>
-<div class="mb">
-{self._flags_html()}
+<div class="card mb" style="padding:0;overflow:hidden">
+  <div style="max-height:280px;overflow-y:auto;padding:10px">
+    {self._flags_html()}
+  </div>
 </div>
 
 <!-- ═══ FILE TABLES ══════════════════════════════════════════════════════ -->
@@ -499,6 +675,12 @@ body{{background:var(--bg0);color:var(--t1);font-family:-apple-system,BlinkMacSy
   </div>
   <div class="card-title" style="margin-bottom:10px">Sample Hash Records</div>
   {self._hash_samples()}
+</div>
+
+<!-- ═══ ACQUISITION LOG ══════════════════════════════════════════════════ -->
+<div class="sec-title">Acquisition Log</div>
+<div class="card mb" style="max-height:320px;overflow-y:auto">
+  {self._acq_log_html()}
 </div>
 
 </div><!-- /wrap -->
@@ -607,7 +789,7 @@ new Chart(document.getElementById('sizeChart'), {{
 
         path = self.reports_dir / "dashboard.html"
         path.write_text(html, encoding="utf-8")
-        print(f"[+] HTML dashboard → {path}")
+        print(f"[+] HTML dashboard -> {path}")
         return path
 
     # ------------------------------------------------------------------

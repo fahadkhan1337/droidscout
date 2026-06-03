@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DroidScout Explorer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        darkBase: '#0d1117', darkSurface: '#161b22', darkBorder: '#30363d',
+        darkPrimary: '#58a6ff', accent: '#1f6feb',
+      }
+    }
+  }
+}
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+  /* Gallery grid */
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .gallery-card { position: relative; background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .1s; aspect-ratio: 1; }
+  .gallery-card:hover { border-color: #58a6ff; transform: scale(1.02); }
+  .gallery-card.flagged { border-color: #f0883e; }
+  .gallery-card img { width:100%; height:100%; object-fit:cover; display:block; background:#0d1117; }
+  .gallery-card .overlay { position:absolute; inset:0; background:rgba(0,0,0,0); transition:background .15s; display:flex; align-items:center; justify-content:center; }
+  .gallery-card:hover .overlay { background:rgba(0,0,0,.45); }
+  .gallery-card .overlay-icons { opacity:0; display:flex; gap:8px; transition:opacity .15s; }
+  .gallery-card:hover .overlay-icons { opacity:1; }
+  .gallery-card .flag-badge { position:absolute; top:6px; right:6px; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:700; line-height:1.4; }
+  .gallery-card .type-badge { position:absolute; bottom:0; left:0; right:0; padding:6px 8px; font-size:10px; color:#8b949e; background:linear-gradient(transparent, rgba(0,0,0,.75)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Lightbox */
+  #lightbox { position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; }
+  #lightbox.open { display:flex; }
+  #lightboxContent { position:relative; max-width:90vw; max-height:90vh; display:flex; align-items:center; justify-content:center; }
+  #lightboxContent img, #lightboxContent video { max-width:90vw; max-height:80vh; border-radius:8px; object-fit:contain; }
+
+  /* File tree */
+  .tree-row { display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:12px; color:#8b949e; transition:background .1s, color .1s; white-space:nowrap; overflow:hidden; }
+  .tree-row:hover { background:#1f2937; color:#e6edf3; }
+  .tree-row.selected { background:#1f6feb33; color:#58a6ff; }
+  .tree-row.flagged-row { border-left: 2px solid #f0883e; padding-left:6px; }
+
+  /* Preview pane */
+  #previewPane { display:flex; align-items:center; justify-content:center; background:#0d1117; }
+  #previewPane pre { max-height:calc(100vh - 200px); overflow:auto; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#8b949e; }
+  #previewPane video, #previewPane audio { max-width:100%; }
+  #previewPane img { max-width:100%; max-height:calc(100vh - 200px); object-fit:contain; }
+
+  /* Flag severity colors */
+  .sev-HIGH   { background:#3d1515; color:#f85149; border-color:#6e1c1c; }
+  .sev-MEDIUM { background:#2e2209; color:#e3b341; border-color:#6a4f00; }
+  .sev-LOW    { background:#0d1f3e; color:#58a6ff; border-color:#1f4176; }
+  .sev-INFO   { background:#161b22; color:#8b949e; border-color:#30363d; }
+
+  .btn { padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid; cursor:pointer; transition:.15s; outline:none; }
+  .btn-sky { background:#0c3055; color:#58a6ff; border-color:#1f6feb; }
+  .btn-sky:hover { background:#1f6feb; color:#fff; }
+  .btn-ghost { background:transparent; color:#8b949e; border-color:#30363d; }
+  .btn-ghost:hover { color:#e6edf3; border-color:#484f58; background:#1f2937; }
+  .btn-flag { background:#2e2200; color:#e3b341; border-color:#6a4f00; }
+  .btn-flag:hover { background:#6a4f00; }
+  .btn-red { background:#2d0f0f; color:#f85149; border-color:#6e1c1c; }
+  .btn-red:hover { background:#6e1c1c; }
+
+  .tab-active { background:#1f6feb22; color:#58a6ff; border-color:#1f6feb; }
+  .tab { color:#8b949e; border-color:#30363d; background:transparent; }
+  .tab:hover { color:#e6edf3; background:#1f2937; border-color:#484f58; }
+  input, select, textarea { background:#161b22; border:1px solid #30363d; color:#e6edf3; border-radius:6px; font-size:12px; padding:6px 10px; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:#58a6ff; }
+  input::placeholder { color:#484f58; }
+
+  .spinner { width:24px;height:24px;border:3px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- TOP HEADER -->
+<header style="background:#161b22;border-bottom:1px solid #30363d;padding:10px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;">
+  <button onclick="history.back()" class="btn btn-ghost" style="padding:5px 10px;display:flex;align-items:center;gap:5px;">
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+    Back
+  </button>
+  <div style="width:1px;height:24px;background:#30363d;"></div>
+  <svg width="18" height="18" fill="none" stroke="#58a6ff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+  <div style="flex:1;min-width:0;">
+    <div style="font-weight:700;color:#e6edf3;font-size:14px;" id="headerDevice">Loading…</div>
+    <div style="font-size:11px;color:#484f58;font-family:monospace;" id="headerSession"></div>
+  </div>
+  <!-- Mode toggle -->
+  <div style="display:flex;gap:6px;background:#0d1117;padding:3px;border-radius:8px;border:1px solid #30363d;">
+    <button id="modeGallery" onclick="setMode('gallery')" class="btn tab-active" style="padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;">
+      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+      Gallery
+    </button>
+    <button id="modeExplorer" onclick="setMode('explorer')" class="btn tab" style="padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;">
+      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+      Files
+    </button>
+  </div>
+  <button onclick="openFlaggedPanel()" class="btn" style="display:flex;align-items:center;gap:6px;background:#2e2200;color:#e3b341;border-color:#6a4f00;padding:6px 12px;">
+    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
+    <span id="flagCount">Flags</span>
+  </button>
+</header>
+
+<!-- GALLERY VIEW -->
+<div id="galleryView" style="padding:16px 20px;">
+  <!-- Filter bar -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+    <div style="display:flex;gap:4px;background:#0d1117;padding:3px;border-radius:8px;border:1px solid #30363d;">
+      <button class="btn tab-active" id="fAll"    onclick="setFilter('all')"    style="padding:4px 12px;border-radius:5px;font-size:11px;">All Media</button>
+      <button class="btn tab"       id="fImages"  onclick="setFilter('images')" style="padding:4px 12px;border-radius:5px;font-size:11px;">📷 Images</button>
+      <button class="btn tab"       id="fVideos"  onclick="setFilter('videos')" style="padding:4px 12px;border-radius:5px;font-size:11px;">🎬 Videos</button>
+      <button class="btn tab"       id="fAudio"   onclick="setFilter('audio')"  style="padding:4px 12px;border-radius:5px;font-size:11px;">🎵 Audio</button>
+    </div>
+    <span id="galleryCount" style="font-size:12px;color:#484f58;margin-left:4px;"></span>
+  </div>
+  <!-- Grid -->
+  <div id="galleryGrid" class="gallery-grid"></div>
+  <div id="galleryEmpty" style="display:none;text-align:center;padding:60px 0;color:#484f58;">
+    <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin:0 auto 12px;display:block;opacity:.3"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+    <p style="font-size:14px;">No media files found</p>
+    <p style="font-size:12px;margin-top:4px;">Switch to Files mode to browse all files</p>
+  </div>
+  <div id="galleryLoader" style="display:flex;justify-content:center;padding:40px 0;"><div class="spinner"></div></div>
+</div>
+
+<!-- EXPLORER VIEW -->
+<div id="explorerView" style="display:none;height:calc(100vh - 57px);display:none;flex-direction:row;">
+  <!-- Sidebar: tree -->
+  <div id="explorerSidebar" style="width:280px;flex-shrink:0;border-right:1px solid #30363d;overflow-y:auto;padding:8px;background:#0d1117;">
+    <div id="explorerTree"></div>
+  </div>
+  <!-- Main: preview -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+    <!-- breadcrumb -->
+    <div style="padding:8px 16px;border-bottom:1px solid #30363d;font-size:11px;color:#484f58;font-family:monospace;background:#161b22;" id="breadcrumb">/ (evidence root)</div>
+    <!-- preview + toolbar -->
+    <div id="previewPane" style="flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:24px;background:#0d1117;">
+      <div style="text-align:center;color:#484f58;">
+        <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin:0 auto 12px;display:block;opacity:.3"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+        <p style="font-size:13px;">Select a file to preview</p>
+      </div>
+    </div>
+    <!-- file toolbar -->
+    <div id="fileToolbar" style="display:none;padding:10px 16px;border-top:1px solid #30363d;background:#161b22;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span id="toolbarName" style="font-size:12px;color:#e6edf3;font-family:monospace;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <select id="flagSev" style="width:110px;">
+        <option value="HIGH">🔴 HIGH</option>
+        <option value="MEDIUM">🟡 MEDIUM</option>
+        <option value="LOW">🔵 LOW</option>
+        <option value="INFO" selected>⚪ INFO</option>
+      </select>
+      <input id="flagNoteInput" type="text" placeholder="Flag note…" style="width:180px;">
+      <button onclick="applyFlag()" class="btn btn-flag">Flag File</button>
+      <button onclick="removeFlag()" class="btn btn-red">Remove Flag</button>
+      <a id="dlBtn" href="#" class="btn btn-sky" style="text-decoration:none;">Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- FLAGGED FILES PANEL -->
+<div id="flaggedPanel" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:560px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6);">
+    <div style="display:flex;align-items:center;justify-content:between;padding:14px 18px;border-bottom:1px solid #30363d;gap:12px;">
+      <svg width="16" height="16" fill="none" stroke="#e3b341" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
+      <span style="font-weight:700;color:#e3b341;flex:1;">Flagged Files</span>
+      <button onclick="closeFlaggedPanel()" style="background:none;border:none;color:#484f58;cursor:pointer;padding:2px;">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+    </div>
+    <div id="flaggedPanelBody" style="overflow-y:auto;flex:1;padding:12px 16px;"></div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="lightbox" onclick="closeLightbox(event)">
+  <button onclick="closeLightbox()" style="position:fixed;top:16px;right:16px;background:#1f2937;border:1px solid #30363d;color:#8b949e;border-radius:999px;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:110;font-size:18px;">✕</button>
+  <div id="lightboxContent"></div>
+</div>
+
+<!-- FLAG MODAL -->
+<div id="flagModal" style="display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:420px;padding:20px;box-shadow:0 24px 64px rgba(0,0,0,.6);">
+    <h3 style="font-weight:700;color:#e6edf3;margin:0 0 6px;font-size:14px;">Flag File</h3>
+    <p id="flagModalFile" style="font-size:11px;color:#484f58;font-family:monospace;margin:0 0 14px;word-break:break-all;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <select id="flagModalSev" style="width:100%;">
+        <option value="HIGH">🔴 HIGH — Critical evidence</option>
+        <option value="MEDIUM">🟡 MEDIUM — Suspicious</option>
+        <option value="LOW">🔵 LOW — Noteworthy</option>
+        <option value="INFO" selected>⚪ INFO — General note</option>
+      </select>
+      <textarea id="flagModalNote" rows="3" placeholder="Optional note…" style="width:100%;resize:vertical;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="closeFlagModal()" class="btn btn-ghost">Cancel</button>
+        <button onclick="submitFlagModal()" class="btn btn-flag">Save Flag</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const params = new URLSearchParams(window.location.search);
+let DEVICE = params.get('device') || '';
+let SESSION = params.get('session') || '';
+// Support path-based too: /explorer/{device}/{session}
+const pathParts = location.pathname.split('/').filter(Boolean);
+if (!DEVICE && pathParts[1]) DEVICE = pathParts[1];
+if (!SESSION && pathParts[2]) SESSION = pathParts[2];
+
+const API = ``;
+let currentMode = 'gallery';
+let currentFilter = 'all';
+let allMediaFiles = [];
+let explorerCurrentPath = '';
+let explorerSelectedPath = '';
+let flagModalFilePath = '';
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('headerDevice').textContent = DEVICE || 'Unknown Device';
+  document.getElementById('headerSession').textContent = SESSION || '';
+  const startMode = params.get('mode') === 'explorer' ? 'explorer' : 'gallery';
+  setMode(startMode);
+  if (startMode === 'gallery') await loadGallery();
+  else loadExplorerDir('');
+  updateFlagCount();
+});
+
+// ─── Mode switching ────────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  const gallery = document.getElementById('galleryView');
+  const explorer = document.getElementById('explorerView');
+  const btnG = document.getElementById('modeGallery');
+  const btnE = document.getElementById('modeExplorer');
+  if (mode === 'gallery') {
+    gallery.style.display = 'block'; explorer.style.display = 'none';
+    btnG.className = 'btn tab-active'; btnE.className = 'btn tab';
+    btnG.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
+    btnE.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
+  } else {
+    gallery.style.display = 'none'; explorer.style.display = 'flex';
+    btnE.className = 'btn tab-active'; btnG.className = 'btn tab';
+    btnG.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
+    btnE.style.cssText += ';padding:5px 12px;border-radius:5px;display:flex;align-items:center;gap:5px;';
+    if (!document.getElementById('explorerTree').children.length) loadExplorerDir('');
+  }
+}
+
+// ─── Gallery ──────────────────────────────────────────────────────────────────
+async function loadGallery() {
+  const loader = document.getElementById('galleryLoader');
+  loader.style.display = 'flex';
+  document.getElementById('galleryGrid').innerHTML = '';
+  document.getElementById('galleryEmpty').style.display = 'none';
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/media?kind=${currentFilter}`);
+    const data = await r.json();
+    allMediaFiles = data.files || [];
+    renderGallery(allMediaFiles);
+  } catch(e) {
+    document.getElementById('galleryGrid').innerHTML = `<p style="color:#f85149;font-size:13px;">Failed to load media.</p>`;
+  }
+  loader.style.display = 'none';
+}
+
+function renderGallery(files) {
+  const grid = document.getElementById('galleryGrid');
+  const empty = document.getElementById('galleryEmpty');
+  const cnt = document.getElementById('galleryCount');
+  grid.innerHTML = '';
+  cnt.textContent = files.length ? `${files.length} file${files.length!==1?'s':''}` : '';
+  if (!files.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  const sevColors = {HIGH:'#f85149',MEDIUM:'#e3b341',LOW:'#58a6ff',INFO:'#8b949e'};
+
+  files.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'gallery-card' + (f.flag ? ' flagged' : '');
+    const url = `/api/explorer/${DEVICE}/${SESSION}/serve?path=${encodeURIComponent(f.path)}`;
+
+    let inner = '';
+    if (f.category === 'image') {
+      inner = `<img loading="lazy" src="${url}" alt="${esc(f.name)}" onerror="this.src='';this.style.background='#161b22';">`;
+    } else if (f.category === 'video') {
+      inner = `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1117;gap:6px;">
+        <svg width="32" height="32" fill="none" stroke="#a371f7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+        <span style="font-size:9px;color:#484f58;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.name)}</span></div>`;
+    } else {
+      inner = `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1117;gap:6px;">
+        <svg width="32" height="32" fill="none" stroke="#58a6ff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+        <span style="font-size:9px;color:#484f58;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.name)}</span></div>`;
+    }
+
+    card.innerHTML = inner +
+      `<div class="overlay"><div class="overlay-icons">
+        <button onclick="openLightbox(event,'${esc(f.path)}','${f.category}','${f.media_type||''}','${esc(f.name)}')" title="Preview" style="background:rgba(255,255,255,.15);border:none;border-radius:999px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+        </button>
+        <button onclick="openFlagModal(event,'${esc(f.path)}')" title="Flag" style="background:rgba(255,255,255,.15);border:none;border-radius:999px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
+        </button>
+        <a href="/api/explorer/${DEVICE}/${SESSION}/download?path=${encodeURIComponent(f.path)}" download="${esc(f.name)}" onclick="event.stopPropagation()" title="Download" style="background:rgba(255,255,255,.15);border:none;border-radius:999px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </a>
+      </div></div>
+      ${f.flag ? `<span class="flag-badge sev-${f.flag.severity}" style="border:1px solid;">${f.flag.severity}</span>` : ''}
+      <div class="type-badge">${esc(f.name)}</div>`;
+
+    grid.appendChild(card);
+  });
+}
+
+function setFilter(filter) {
+  currentFilter = filter;
+  ['All','Images','Videos','Audio'].forEach((n,i) => {
+    const id = ['fAll','fImages','fVideos','fAudio'][i];
+    const el = document.getElementById(id);
+    el.className = 'btn ' + (filter === ['all','images','videos','audio'][i] ? 'tab-active' : 'tab');
+    el.style.cssText = 'padding:4px 12px;border-radius:5px;font-size:11px;';
+  });
+  loadGallery();
+}
+
+// ─── Lightbox ─────────────────────────────────────────────────────────────────
+function openLightbox(ev, path, category, mediaType, name) {
+  ev && ev.stopPropagation();
+  const url = `/api/explorer/${DEVICE}/${SESSION}/serve?path=${encodeURIComponent(path)}`;
+  const lb = document.getElementById('lightbox');
+  const content = document.getElementById('lightboxContent');
+  if (category === 'image') {
+    content.innerHTML = `<img src="${url}" alt="${esc(name)}" style="max-width:90vw;max-height:88vh;border-radius:8px;object-fit:contain;">`;
+  } else if (category === 'video') {
+    content.innerHTML = `<video controls autoplay style="max-width:90vw;max-height:88vh;border-radius:8px;"><source src="${url}" type="${mediaType||'video/mp4'}">Your browser does not support video.</video>`;
+  } else {
+    content.innerHTML = `<div style="text-align:center;">
+      <svg width="64" height="64" fill="none" stroke="#58a6ff" viewBox="0 0 24 24" style="margin:0 auto 16px;display:block;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+      <audio controls autoplay><source src="${url}" type="${mediaType||'audio/mpeg'}"></audio>
+      <p style="color:#8b949e;font-size:13px;margin-top:12px;">${esc(name)}</p></div>`;
+  }
+  lb.classList.add('open');
+}
+function closeLightbox(ev) {
+  if (ev && ev.target !== document.getElementById('lightbox') && !ev.target.closest('button[onclick="closeLightbox()"]')) return;
+  const content = document.getElementById('lightboxContent');
+  content.innerHTML = '';
+  document.getElementById('lightbox').classList.remove('open');
+}
+
+// ─── Explorer (file tree) ─────────────────────────────────────────────────────
+async function loadExplorerDir(path) {
+  explorerCurrentPath = path;
+  document.getElementById('breadcrumb').textContent = path ? '/ ' + path.replace(/\//g,' / ') : '/ (evidence root)';
+  const tree = document.getElementById('explorerTree');
+  tree.innerHTML = `<div style="display:flex;justify-content:center;padding:20px;"><div class="spinner"></div></div>`;
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}?path=${encodeURIComponent(path)}`);
+    const data = await r.json();
+    renderTree(data.items, path);
+  } catch(e) { tree.innerHTML = `<p style="color:#f85149;font-size:12px;padding:8px;">Error loading.</p>`; }
+}
+
+function renderTree(items, currentPath) {
+  const tree = document.getElementById('explorerTree');
+  tree.innerHTML = '';
+  if (currentPath) {
+    const up = document.createElement('div');
+    up.className = 'tree-row';
+    up.innerHTML = `<svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg><span>.. up</span>`;
+    up.onclick = () => { const p = currentPath.split('/'); p.pop(); loadExplorerDir(p.join('/')); };
+    tree.appendChild(up);
+  }
+  if (!items.length) {
+    const e = document.createElement('div'); e.style.cssText='font-size:11px;color:#484f58;padding:12px 8px;text-align:center;';
+    e.textContent = 'Empty'; tree.appendChild(e); return;
+  }
+  const sevColors = {HIGH:'#f85149',MEDIUM:'#e3b341',LOW:'#58a6ff',INFO:'#8b949e'};
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'tree-row' + (item.flag ? ' flagged-row' : '') + (explorerSelectedPath === item.path ? ' selected' : '');
+    const icon = item.is_dir ? folderIcon() : fileIcon(item.ext);
+    const flagPip = item.flag ? `<span style="width:7px;height:7px;border-radius:50%;background:${sevColors[item.flag.severity]||'#8b949e'};flex-shrink:0;margin-left:auto;"></span>` : '';
+    row.innerHTML = `${icon}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}</span>${flagPip}${!item.is_dir?`<span style="font-size:10px;color:#484f58;flex-shrink:0;margin-left:4px;">${fmtBytes(item.size)}</span>`:''}`;
+    row.onclick = () => {
+      if (item.is_dir) { loadExplorerDir(item.path); return; }
+      tree.querySelectorAll('.tree-row').forEach(r=>r.classList.remove('selected'));
+      row.classList.add('selected');
+      selectExplorerFile(item);
+    };
+    tree.appendChild(row);
+  });
+}
+
+function selectExplorerFile(item) {
+  explorerSelectedPath = item.path;
+  const tb = document.getElementById('fileToolbar');
+  tb.style.display = 'flex';
+  document.getElementById('toolbarName').textContent = item.name;
+  const dlBtn = document.getElementById('dlBtn');
+  dlBtn.href = `/api/explorer/${DEVICE}/${SESSION}/download?path=${encodeURIComponent(item.path)}`;
+  dlBtn.setAttribute('download', item.name);
+  if (item.flag) { document.getElementById('flagSev').value = item.flag.severity; document.getElementById('flagNoteInput').value = item.flag.note||''; }
+  else { document.getElementById('flagSev').value = 'INFO'; document.getElementById('flagNoteInput').value = ''; }
+  previewInPane(item);
+}
+
+function previewInPane(item) {
+  const pane = document.getElementById('previewPane');
+  const url = `/api/explorer/${DEVICE}/${SESSION}/serve?path=${encodeURIComponent(item.path)}`;
+  const ext = (item.ext||'').toLowerCase();
+  const imgs = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg'];
+  const vids = ['.mp4','.mkv','.avi','.mov','.3gp','.webm'];
+  const auds = ['.mp3','.aac','.wav','.ogg','.m4a','.opus','.flac','.amr'];
+  const txts = ['.txt','.log','.json','.xml','.csv','.md','.cfg','.conf','.ini','.properties'];
+  pane.style.display = 'flex'; pane.style.alignItems = 'center'; pane.style.justifyContent = 'center';
+  if (imgs.includes(ext)) {
+    pane.innerHTML = `<img src="${url}" style="max-width:100%;max-height:calc(100vh - 200px);object-fit:contain;border-radius:6px;" onerror="this.parentElement.innerHTML='<p style=\\'color:#f85149;font-size:13px;\\'>Could not load image.</p>'">`;
+  } else if (vids.includes(ext)) {
+    pane.innerHTML = `<video controls autoplay style="max-width:100%;max-height:calc(100vh - 200px);border-radius:6px;"><source src="${url}" type="${item.media_type||'video/mp4'}"></video>`;
+  } else if (auds.includes(ext)) {
+    pane.innerHTML = `<div style="text-align:center;width:100%;padding:0 40px;">
+      <svg width="64" height="64" fill="none" stroke="#58a6ff" viewBox="0 0 24 24" style="margin:0 auto 16px;display:block;opacity:.5;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+      <audio controls autoplay style="width:100%;"><source src="${url}" type="${item.media_type||'audio/mpeg'}"></audio>
+      <p style="color:#484f58;font-size:12px;margin-top:10px;">${esc(item.name)}</p></div>`;
+  } else if (txts.includes(ext) || item.size < 200000) {
+    pane.innerHTML = `<p style="font-size:12px;color:#484f58;font-style:italic;animation:pulse 1s infinite;">Loading…</p>`;
+    fetch(url).then(r=>r.text()).then(txt=>{
+      pane.innerHTML = `<pre style="max-height:calc(100vh - 200px);overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#8b949e;text-align:left;width:100%;padding:0;">${esc(txt.substring(0,80000))}${txt.length>80000?'\n…(truncated)':''}</pre>`;
+    }).catch(()=>{ pane.innerHTML='<p style="color:#f85149;font-size:13px;">Could not load file.</p>'; });
+  } else {
+    pane.innerHTML = `<div style="text-align:center;color:#484f58;">
+      <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin:0 auto 12px;display:block;opacity:.3;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+      <p style="font-size:13px;">No preview for this file type</p>
+      <p style="font-size:11px;margin-top:4px;">${esc(item.name)} — ${fmtBytes(item.size)}</p>
+      <a href="${`/api/explorer/${DEVICE}/${SESSION}/download?path=${encodeURIComponent(item.path)}`}" download="${esc(item.name)}" style="display:inline-block;margin-top:14px;padding:8px 18px;background:#0c3055;color:#58a6ff;border:1px solid #1f6feb;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600;">Download File</a>
+    </div>`;
+  }
+}
+
+// ─── Flags ────────────────────────────────────────────────────────────────────
+function openFlagModal(ev, path) {
+  ev && ev.stopPropagation();
+  flagModalFilePath = path;
+  document.getElementById('flagModalFile').textContent = path;
+  const existing = allMediaFiles.find(f=>f.path===path);
+  if (existing && existing.flag) { document.getElementById('flagModalSev').value = existing.flag.severity; document.getElementById('flagModalNote').value = existing.flag.note||''; }
+  else { document.getElementById('flagModalSev').value = 'INFO'; document.getElementById('flagModalNote').value = ''; }
+  const m = document.getElementById('flagModal');
+  m.style.display = 'flex';
+}
+function closeFlagModal() { document.getElementById('flagModal').style.display = 'none'; }
+async function submitFlagModal() {
+  await fetch(`/api/explorer/${DEVICE}/${SESSION}/flag`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({file_path:flagModalFilePath, severity:document.getElementById('flagModalSev').value, note:document.getElementById('flagModalNote').value})
+  });
+  closeFlagModal();
+  await loadGallery();
+  updateFlagCount();
+}
+
+async function applyFlag() {
+  if (!explorerSelectedPath) return;
+  await fetch(`/api/explorer/${DEVICE}/${SESSION}/flag`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({file_path:explorerSelectedPath, severity:document.getElementById('flagSev').value, note:document.getElementById('flagNoteInput').value})
+  });
+  await loadExplorerDir(explorerCurrentPath);
+  updateFlagCount();
+}
+async function removeFlag() {
+  if (!explorerSelectedPath) return;
+  await fetch(`/api/explorer/${DEVICE}/${SESSION}/flag?path=${encodeURIComponent(explorerSelectedPath)}`, {method:'DELETE'});
+  document.getElementById('flagSev').value = 'INFO'; document.getElementById('flagNoteInput').value = '';
+  await loadExplorerDir(explorerCurrentPath);
+  updateFlagCount();
+}
+
+async function updateFlagCount() {
+  try {
+    const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/flags`);
+    const data = await r.json();
+    const n = (data.flags||[]).length;
+    document.getElementById('flagCount').textContent = n ? `${n} Flag${n!==1?'s':''}` : 'Flags';
+  } catch{}
+}
+
+async function openFlaggedPanel() {
+  const panel = document.getElementById('flaggedPanel');
+  panel.style.display = 'flex';
+  const body = document.getElementById('flaggedPanelBody');
+  body.innerHTML = `<div style="display:flex;justify-content:center;padding:30px;"><div class="spinner"></div></div>`;
+  const r = await fetch(`/api/explorer/${DEVICE}/${SESSION}/flags`);
+  const data = await r.json();
+  if (!data.flags.length) { body.innerHTML = `<p style="color:#484f58;font-size:13px;text-align:center;padding:30px 0;">No flagged files yet.</p>`; return; }
+  const cls = {HIGH:'sev-HIGH',MEDIUM:'sev-MEDIUM',LOW:'sev-LOW',INFO:'sev-INFO'};
+  body.innerHTML = data.flags.map(f=>`
+    <div style="display:flex;align-items:flex-start;gap:10px;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#1f2937;border:1px solid #30363d;">
+      <span class="${cls[f.severity]||cls.INFO}" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid;flex-shrink:0;white-space:nowrap;">${f.severity}</span>
+      <div style="flex:1;min-width:0;">
+        <p style="font-size:11px;font-family:monospace;color:#e6edf3;word-break:break-all;margin:0 0 2px;">${esc(f.file_path)}</p>
+        ${f.note?`<p style="font-size:11px;color:#484f58;margin:0 0 2px;">${esc(f.note)}</p>`:''}
+        <p style="font-size:10px;color:#30363d;margin:0;">${f.created_at}</p>
+      </div>
+    </div>`).join('');
+}
+function closeFlaggedPanel() { document.getElementById('flaggedPanel').style.display = 'none'; }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  if (b<1024) return b+' B';
+  if (b<1048576) return (b/1024).toFixed(1)+' KB';
+  return (b/1048576).toFixed(2)+' MB';
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function folderIcon() { return `<svg width="13" height="13" fill="#e3b341" viewBox="0 0 20 20" style="flex-shrink:0;"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>`; }
+function fileIcon(ext) {
+  const imgs=['.jpg','.jpeg','.png','.gif','.webp','.bmp'],vids=['.mp4','.mkv','.avi','.mov','.3gp','.webm'],auds=['.mp3','.aac','.wav','.ogg','.m4a','.flac','.amr'];
+  const c = imgs.includes(ext)?'#3fb950':vids.includes(ext)?'#a371f7':auds.includes(ext)?'#58a6ff':'#484f58';
+  return `<svg width="12" height="12" fill="none" stroke="${c}" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`;
+}
+</script>
+</body>
+</html>
