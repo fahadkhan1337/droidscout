@@ -56,6 +56,8 @@ class ADBHelper:
                 args,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout
             )
             return r.returncode, r.stdout, r.stderr
