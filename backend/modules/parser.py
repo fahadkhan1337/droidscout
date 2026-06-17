@@ -10,6 +10,7 @@ ADB content query output format:
 import csv
 import io
 import re
+import xml.etree.ElementTree as ET
 
 
 # ---------------------------------------------------------------------------
@@ -188,3 +189,105 @@ def search_evidence(evidence_dir: str, query: str, max_results: int = 200) -> li
         except Exception:
             continue
     return results
+
+
+# ---------------------------------------------------------------------------
+# Manual import parsers
+# ---------------------------------------------------------------------------
+
+def parse_sms_backup_xml(raw: str) -> list[dict]:
+    """Parse SMS Backup & Restore XML exports."""
+    results = []
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return results
+    from datetime import datetime, timezone
+    for node in root.findall(".//sms"):
+        ts_ms = node.attrib.get("date", "")
+        try:
+            dt = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            dt = ts_ms
+        results.append({
+            "id": node.attrib.get("_id", ""),
+            "address": node.attrib.get("address", ""),
+            "body": node.attrib.get("body", ""),
+            "type": SMS_TYPES.get(node.attrib.get("type", ""), node.attrib.get("type", "")),
+            "date": dt,
+            "read": "Yes" if node.attrib.get("read") == "1" else "No",
+            "source": "manual_import",
+        })
+    return results
+
+
+def parse_sms_csv(raw: str) -> list[dict]:
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    result = []
+    for i, row in enumerate(rows, 1):
+        lower = {k.lower().strip(): v for k, v in row.items() if k}
+        result.append({
+            "id": lower.get("id") or lower.get("_id") or str(i),
+            "address": lower.get("address") or lower.get("number") or lower.get("phone") or "",
+            "body": lower.get("body") or lower.get("message") or lower.get("text") or "",
+            "type": lower.get("type") or lower.get("direction") or "",
+            "date": lower.get("date") or lower.get("timestamp") or lower.get("time") or "",
+            "read": lower.get("read", ""),
+            "source": "manual_import",
+        })
+    return result
+
+
+def parse_calls_csv(raw: str) -> list[dict]:
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    result = []
+    for i, row in enumerate(rows, 1):
+        lower = {k.lower().strip(): v for k, v in row.items() if k}
+        result.append({
+            "id": lower.get("id") or lower.get("_id") or str(i),
+            "number": lower.get("number") or lower.get("phone") or lower.get("address") or "",
+            "name": lower.get("name") or lower.get("contact") or "",
+            "type": lower.get("type") or lower.get("direction") or "",
+            "duration": lower.get("duration") or "",
+            "date": lower.get("date") or lower.get("timestamp") or lower.get("time") or "",
+            "source": "manual_import",
+        })
+    return result
+
+
+def parse_contacts_csv(raw: str) -> list[dict]:
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    result = []
+    for i, row in enumerate(rows, 1):
+        lower = {k.lower().strip(): v for k, v in row.items() if k}
+        result.append({
+            "id": lower.get("id") or lower.get("_id") or str(i),
+            "name": lower.get("name") or lower.get("display_name") or lower.get("full name") or "Unknown",
+            "number": lower.get("number") or lower.get("phone") or lower.get("mobile") or "",
+            "type": lower.get("type") or "",
+            "source": "manual_import",
+        })
+    return result
+
+
+def parse_contacts_vcf(raw: str) -> list[dict]:
+    contacts = []
+    current = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.upper() == "BEGIN:VCARD":
+            current = {}
+        elif line.upper() == "END:VCARD":
+            if current:
+                contacts.append({
+                    "id": str(len(contacts) + 1),
+                    "name": current.get("name", "Unknown"),
+                    "number": current.get("number", ""),
+                    "type": "VCF",
+                    "source": "manual_import",
+                })
+        elif line.upper().startswith("FN:"):
+            current["name"] = line.split(":", 1)[1]
+        elif line.upper().startswith("TEL"):
+            current["number"] = line.split(":", 1)[1] if ":" in line else ""
+    return contacts

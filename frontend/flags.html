@@ -3,17 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>DroidScout — Flags</title>
+<title>DroidTrace — Flags</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.5}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.55}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
 
 /* Header */
 .hdr{background:#161b22;border-bottom:2px solid #f85149;padding:0 24px;display:flex;align-items:center;gap:12px;height:52px;position:sticky;top:0;z-index:50}
-.brand{font-size:15px;font-weight:800;color:#e6edf3}
+.brand{font-size:18px;font-weight:800;color:#e6edf3}
 .brand em{color:#e3b341;font-style:normal}
 .hdr-sep{width:1px;height:24px;background:#30363d}
 .hdr-back{display:flex;align-items:center;gap:5px;color:#8b949e;text-decoration:none;font-size:12px;border:1px solid #30363d;padding:4px 10px;transition:.15s;margin-right:auto}
@@ -103,7 +104,7 @@ tr:hover td{background:#161b22}
     <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
     Back
   </a>
-  <div class="brand">Droid<em>Scout</em></div>
+  <div class="brand">Droid<em>Trace</em></div>
   <div class="hdr-sep"></div>
   <div class="hdr-title">All Flags</div>
 </header>
@@ -165,7 +166,13 @@ let activeAck  = new Set(['open','acked']);
 let pendingAck = null;
 
 // ── Load ──────────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', loadFlags);
+window.addEventListener('DOMContentLoaded', () => {
+  if (window.gsap) {
+    gsap.from('.hdr', {y:-16, opacity:0, duration:.4, ease:'power2.out'});
+    gsap.from('.toolbar,.filters,.wrap', {y:14, opacity:0, duration:.45, stagger:.07, delay:.08, ease:'power2.out'});
+  }
+  loadFlags();
+});
 
 async function loadFlags() {
   try {
@@ -281,6 +288,9 @@ function renderTable() {
   }
   html += '</tbody></table></div>';
   wrap.innerHTML = html;
+  if (window.gsap) {
+    gsap.from('#tblWrap tbody tr', {y:8, opacity:0, duration:.25, stagger:.01, ease:'power2.out', overwrite:true});
+  }
 }
 
 // ── Acknowledge ───────────────────────────────────────────────────────────────
@@ -332,7 +342,7 @@ function exportCsv() {
   const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), {href:url, download:'droidscout_flags.csv'});
+  const a    = Object.assign(document.createElement('a'), {href:url, download:'DroidTrace_flags.csv'});
   a.click(); URL.revokeObjectURL(url);
 }
 
@@ -343,3 +353,4 @@ function esc(s) {
 </script>
 </body>
 </html>
+

@@ -80,6 +80,21 @@ class ADBHelper:
         code, stdout, stderr = self._run(["adb", "kill-server"], timeout=30)
         return code == 0
 
+    def connect_tcpip(self, host: str, port: int = 5555) -> tuple:
+        """Connect to a device over Wi-Fi ADB."""
+        target = f"{host}:{port}"
+        code, stdout, stderr = self._run(["adb", "connect", target], timeout=30)
+        output = (stdout or stderr or "").strip()
+        return code == 0 and ("connected" in output.lower() or "already connected" in output.lower()), output
+
+    def disconnect_tcpip(self, host: str = "", port: int = 5555) -> tuple:
+        """Disconnect one Wi-Fi ADB target, or all TCP/IP targets when host is empty."""
+        target = f"{host}:{port}" if host else ""
+        args = ["adb", "disconnect"] + ([target] if target else [])
+        code, stdout, stderr = self._run(args, timeout=30)
+        output = (stdout or stderr or "").strip()
+        return code == 0, output
+
     # ------------------------------------------------------------------
     # Device detection
     # ------------------------------------------------------------------
@@ -256,11 +271,11 @@ class ADBHelper:
 
     def _grant(self, permission: str):
         """Grant a permission to com.android.shell (needed on Android 10+)."""
-        self._run(["adb", "shell", "pm", "grant", "com.android.shell", permission], timeout=10)
+        return self._run(["adb", "shell", "pm", "grant", "com.android.shell", permission], timeout=10)
 
     def _revoke(self, permission: str):
         """Revoke a permission from com.android.shell after querying."""
-        self._run(["adb", "shell", "pm", "revoke", "com.android.shell", permission], timeout=10)
+        return self._run(["adb", "shell", "pm", "revoke", "com.android.shell", permission], timeout=10)
 
     def _query_with_permission(self, permission: str, uri: str,
                                 projection: str, extra: str = "", timeout: int = 30) -> str:
@@ -272,6 +287,32 @@ class ADBHelper:
         )
         self._revoke(permission)
         return output
+
+    def _query_with_permission_status(self, permission: str, uri: str,
+                                      projection: str, extra: str = "", timeout: int = 30) -> dict:
+        """Grant permission, query content provider, and return structured status."""
+        g_code, g_out, g_err = self._grant(permission)
+        grant_msg = f"{g_out}\n{g_err}".strip()
+        if g_code != 0:
+            lowered = grant_msg.lower()
+            if "not a changeable permission type" in lowered or "hard restricted" in lowered or "permission denied" in lowered:
+                status = "blocked_by_android_policy"
+            else:
+                status = "permission_denied"
+            return {"status": status, "output": "", "error": grant_msg, "rows": 0}
+
+        code, output = self.shell(
+            f"content query --uri {uri} --projection {projection} {extra}",
+            timeout=timeout,
+        )
+        self._revoke(permission)
+        rows = output.count("Row:")
+        if code != 0:
+            lowered = output.lower()
+            status = "blocked_by_android_policy" if "permission" in lowered or "security" in lowered else "failed"
+        else:
+            status = "collected" if rows else "empty"
+        return {"status": status, "output": output, "error": "" if code == 0 else output, "rows": rows}
 
     # ------------------------------------------------------------------
     # Contacts / Call logs / SMS
@@ -294,9 +335,34 @@ class ADBHelper:
                 output = (output + "\n" + sim).strip()
         return output
 
+    def get_contacts_status(self) -> dict:
+        result = self._query_with_permission_status(
+            "android.permission.READ_CONTACTS",
+            "content://contacts/phones",
+            "display_name:number:type",
+        )
+        if result["rows"] == 0:
+            _, sim = self.shell(
+                "content query --uri content://icc/adn --projection name:number",
+                timeout=20,
+            )
+            if "Row:" in sim:
+                result["output"] = (result["output"] + "\n" + sim).strip()
+                result["rows"] = result["output"].count("Row:")
+                result["status"] = "collected"
+        return result
+
     def get_call_logs(self) -> str:
         """Query call log — grants READ_CALL_LOG for Android 10+."""
         return self._query_with_permission(
+            "android.permission.READ_CALL_LOG",
+            "content://call_log/calls",
+            "number:duration:type:date:name",
+            extra="--sort 'date DESC' --limit 500",
+        )
+
+    def get_call_logs_status(self) -> dict:
+        return self._query_with_permission_status(
             "android.permission.READ_CALL_LOG",
             "content://call_log/calls",
             "number:duration:type:date:name",
@@ -319,6 +385,23 @@ class ADBHelper:
         if "Row:" in sim_sms:
             phone_sms = (phone_sms + "\n" + sim_sms).strip()
         return phone_sms
+
+    def get_sms_status(self) -> dict:
+        result = self._query_with_permission_status(
+            "android.permission.READ_SMS",
+            "content://sms",
+            "address:body:date:type:read",
+            extra="--sort 'date DESC' --limit 500",
+        )
+        _, sim_sms = self.shell(
+            "content query --uri content://icc/sms --projection address:body:date:type",
+            timeout=20,
+        )
+        if "Row:" in sim_sms:
+            result["output"] = (result["output"] + "\n" + sim_sms).strip()
+            result["rows"] = result["output"].count("Row:")
+            result["status"] = "collected"
+        return result
 
     def get_phone_number(self) -> str:
         """Try multiple methods to get the device's own phone number."""

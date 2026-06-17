@@ -1,7 +1,9 @@
+import hashlib
 import os
 import sys
 import glob
 import json
+import re
 import shutil
 from datetime import datetime
 
@@ -10,7 +12,7 @@ if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if sys.stderr.encoding != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -29,11 +31,15 @@ from database import (
     get_all_file_flags,
     acknowledge_flag, unacknowledge_flag, get_acknowledgments, get_all_acknowledgments,
 )
-from modules.parser import parse_contacts, parse_calls, parse_sms, contacts_to_csv, calls_to_csv, sms_to_csv, search_evidence
+from modules.parser import (
+    parse_contacts, parse_calls, parse_sms, contacts_to_csv, calls_to_csv, sms_to_csv,
+    search_evidence, parse_sms_backup_xml, parse_sms_csv, parse_calls_csv,
+    parse_contacts_csv, parse_contacts_vcf,
+)
 from fastapi.responses import StreamingResponse
 import io
 
-app = FastAPI(title="DroidScout API", version="1.0.0")
+app = FastAPI(title="DroidTrace API", version="1.0.0")
 
 # Initialise SQLite database
 init_db()
@@ -84,6 +90,65 @@ class GenericResponse(BaseModel):
     status: str
     message: str
 
+class WirelessAdbRequest(BaseModel):
+    host: str
+    port: int = 5555
+
+IMPORT_TYPES = {"sms", "calls", "contacts"}
+
+def _safe_device_dir(device_id: str) -> str:
+    """Filesystem-safe folder name for ADB serials such as 127.0.0.1:5555."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", device_id).strip("._")
+    return safe or "device"
+
+def _session_path(device_id: str, session_id: str) -> str:
+    rec = get_session(session_id)
+    path = rec.get("output_dir") if rec else os.path.join("output", device_id, session_id)
+    return path if os.path.isabs(path) else os.path.join(os.path.dirname(__file__), path)
+
+def _session_evidence_dir(device_id: str, session_id: str) -> str:
+    return os.path.join(_session_path(device_id, session_id), "evidence")
+
+def _load_manifest(session_path: str) -> dict:
+    path = os.path.join(session_path, "evidence", "acquisition_manifest.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_manifest(session_path: str, manifest: dict):
+    path = os.path.join(session_path, "evidence", "acquisition_manifest.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+def _append_file_metadata(session_path: str, rel_path: str, source: str):
+    meta_path = os.path.join(session_path, "evidence", "file_metadata.json")
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"generated_at": datetime.now().isoformat(), "files": {}}
+    full = os.path.join(session_path, "evidence", rel_path)
+    try:
+        st = os.stat(full)
+        data.setdefault("files", {})[rel_path.replace("\\", "/")] = {
+            "source": source,
+            "remote_path": "",
+            "size_bytes": st.st_size,
+            "device_modified_time": "",
+            "local_acquired_time": datetime.fromtimestamp(st.st_mtime).isoformat(),
+            "metadata_status": "manual_import",
+        }
+        data["generated_at"] = datetime.now().isoformat()
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
 @app.post("/api/adb/start", response_model=GenericResponse)
 def start_adb_server():
     success = adb.start_server()
@@ -97,6 +162,28 @@ def stop_adb_server():
     if success:
         return {"status": "success", "message": "ADB server stopped successfully."}
     raise HTTPException(status_code=500, detail="Failed to stop ADB server.")
+
+@app.post("/api/adb/connect", response_model=GenericResponse)
+def connect_wireless_adb(body: WirelessAdbRequest):
+    host = body.host.strip()
+    if not host:
+        raise HTTPException(status_code=400, detail="Host/IP is required.")
+    if body.port < 1 or body.port > 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535.")
+    success, message = adb.connect_tcpip(host, body.port)
+    if success:
+        return {"status": "success", "message": message or f"Connected to {host}:{body.port}"}
+    raise HTTPException(status_code=500, detail=message or f"Failed to connect to {host}:{body.port}.")
+
+@app.post("/api/adb/disconnect", response_model=GenericResponse)
+def disconnect_wireless_adb(body: WirelessAdbRequest):
+    host = body.host.strip()
+    if body.port < 1 or body.port > 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535.")
+    success, message = adb.disconnect_tcpip(host, body.port)
+    if success:
+        return {"status": "success", "message": message or f"Disconnected {host}:{body.port}"}
+    raise HTTPException(status_code=500, detail=message or f"Failed to disconnect {host}:{body.port}.")
 
 @app.get("/api/devices", response_model=DeviceListResponse)
 def get_devices():
@@ -161,7 +248,7 @@ def run_acquisition_pipeline(session_id: str, device_id: str, output_dir: str, o
 @app.post("/api/acquire/{device_id}")
 def acquire_data(device_id: str, options: AcquireOptions, background_tasks: BackgroundTasks):
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("output", device_id, session_id)
+    output_dir = os.path.join("output", _safe_device_dir(device_id), session_id)
 
     create_session(session_id, device_id, output_dir)
 
@@ -238,7 +325,7 @@ def patch_case_metadata(device_id: str, session_id: str, meta: CaseMetadata):
 @app.get("/api/records/{device_id}/{session_id}/summary")
 def get_session_summary(device_id: str, session_id: str):
     """Return key stats from analysis.json for the completion modal."""
-    analysis_path = os.path.join("output", device_id, session_id, "reports", "analysis.json")
+    analysis_path = os.path.join(_session_path(device_id, session_id), "reports", "analysis.json")
     if not os.path.exists(analysis_path):
         raise HTTPException(status_code=404, detail="Analysis not ready yet.")
     with open(analysis_path, encoding="utf-8") as f:
@@ -253,7 +340,7 @@ def get_session_summary(device_id: str, session_id: str):
 @app.get("/api/records/{device_id}/{session_id}/log")
 def get_acquisition_log(device_id: str, session_id: str):
     """Return the acquisition manifest log entries for inline viewing."""
-    manifest_path = os.path.join("output", device_id, session_id, "evidence", "acquisition_manifest.json")
+    manifest_path = os.path.join(_session_evidence_dir(device_id, session_id), "acquisition_manifest.json")
     if not os.path.exists(manifest_path):
         raise HTTPException(status_code=404, detail="Manifest not found.")
     with open(manifest_path, encoding="utf-8") as f:
@@ -269,7 +356,7 @@ def get_acquisition_log(device_id: str, session_id: str):
     }
 
 def _read_evidence_file(device_id: str, session_id: str, filename: str) -> str:
-    path = os.path.join("output", device_id, session_id, "evidence", filename)
+    path = os.path.join(_session_evidence_dir(device_id, session_id), filename)
     if not os.path.exists(path):
         return ""
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -278,9 +365,15 @@ def _read_evidence_file(device_id: str, session_id: str, filename: str) -> str:
 @app.get("/api/records/{device_id}/{session_id}/contacts")
 def get_contacts(device_id: str, session_id: str):
     raw = _read_evidence_file(device_id, session_id, "contacts.txt")
+    imported = _read_evidence_file(device_id, session_id, "contacts_imported.txt")
+    if imported:
+        try:
+            return {"contacts": json.loads(imported), "raw_available": bool(raw), "source": "manual_import"}
+        except Exception:
+            pass
     if not raw:
         raise HTTPException(status_code=404, detail="Contacts file not found.")
-    return {"contacts": parse_contacts(raw), "raw_available": True}
+    return {"contacts": parse_contacts(raw), "raw_available": True, "source": "adb"}
 
 @app.get("/api/records/{device_id}/{session_id}/contacts/csv")
 def download_contacts_csv(device_id: str, session_id: str):
@@ -294,9 +387,15 @@ def download_contacts_csv(device_id: str, session_id: str):
 @app.get("/api/records/{device_id}/{session_id}/calls")
 def get_calls(device_id: str, session_id: str):
     raw = _read_evidence_file(device_id, session_id, "call_logs.txt")
+    imported = _read_evidence_file(device_id, session_id, "call_logs_imported.txt")
+    if imported:
+        try:
+            return {"calls": json.loads(imported), "source": "manual_import"}
+        except Exception:
+            pass
     if not raw:
         raise HTTPException(status_code=404, detail="Call logs file not found.")
-    return {"calls": parse_calls(raw)}
+    return {"calls": parse_calls(raw), "source": "adb"}
 
 @app.get("/api/records/{device_id}/{session_id}/calls/csv")
 def download_calls_csv(device_id: str, session_id: str):
@@ -310,9 +409,15 @@ def download_calls_csv(device_id: str, session_id: str):
 @app.get("/api/records/{device_id}/{session_id}/sms")
 def get_sms_data(device_id: str, session_id: str):
     raw = _read_evidence_file(device_id, session_id, "sms.txt")
+    imported = _read_evidence_file(device_id, session_id, "sms_imported.txt")
+    if imported:
+        try:
+            return {"sms": json.loads(imported), "source": "manual_import"}
+        except Exception:
+            pass
     if not raw:
         raise HTTPException(status_code=404, detail="SMS file not found.")
-    return {"sms": parse_sms(raw)}
+    return {"sms": parse_sms(raw), "source": "adb"}
 
 @app.get("/api/records/{device_id}/{session_id}/sms/csv")
 def download_sms_csv(device_id: str, session_id: str):
@@ -323,11 +428,101 @@ def download_sms_csv(device_id: str, session_id: str):
     return StreamingResponse(io.StringIO(csv_data), media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=sms_{session_id}.csv"})
 
+@app.post("/api/records/{device_id}/{session_id}/imports/{import_type}")
+async def import_communication_file(
+    device_id: str,
+    session_id: str,
+    import_type: str,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+):
+    """Import SMS/calls/contacts evidence when Android blocks direct acquisition."""
+    if import_type not in IMPORT_TYPES:
+        raise HTTPException(status_code=400, detail="import_type must be sms, calls, or contacts.")
+    session_path = _session_path(device_id, session_id)
+    evidence_dir = os.path.join(session_path, "evidence")
+    if not os.path.isdir(evidence_dir):
+        raise HTTPException(status_code=404, detail="Evidence folder not found.")
+
+    raw_bytes = await file.read()
+    raw_text = raw_bytes.decode("utf-8", errors="replace")
+    filename = os.path.basename(file.filename or f"{import_type}_import.txt")
+    imports_dir = os.path.join(evidence_dir, "imports", import_type)
+    os.makedirs(imports_dir, exist_ok=True)
+    raw_path = os.path.join(imports_dir, filename)
+    with open(raw_path, "wb") as f:
+        f.write(raw_bytes)
+
+    ext = os.path.splitext(filename)[1].lower()
+    if import_type == "sms":
+        parsed = parse_sms_backup_xml(raw_text) if ext == ".xml" else parse_sms_csv(raw_text)
+        normalized_name = "sms_imported.json"
+        text_name = "sms_imported.txt"
+    elif import_type == "calls":
+        parsed = parse_calls_csv(raw_text)
+        normalized_name = "call_logs_imported.json"
+        text_name = "call_logs_imported.txt"
+    else:
+        parsed = parse_contacts_vcf(raw_text) if ext == ".vcf" else parse_contacts_csv(raw_text)
+        normalized_name = "contacts_imported.json"
+        text_name = "contacts_imported.txt"
+
+    normalized_path = os.path.join(imports_dir, normalized_name)
+    with open(normalized_path, "w", encoding="utf-8") as f:
+        json.dump(parsed, f, indent=2)
+    text_path = os.path.join(evidence_dir, text_name)
+    with open(text_path, "w", encoding="utf-8") as f:
+        json.dump(parsed, f, indent=2)
+
+    raw_rel = os.path.relpath(raw_path, evidence_dir).replace("\\", "/")
+    norm_rel = os.path.relpath(normalized_path, evidence_dir).replace("\\", "/")
+    text_rel = os.path.relpath(text_path, evidence_dir).replace("\\", "/")
+    for rel in (raw_rel, norm_rel, text_rel):
+        _append_file_metadata(session_path, rel, "manual_import")
+
+    manifest = _load_manifest(session_path)
+    manifest.setdefault("communication", {})
+    manifest["communication"][import_type] = {
+        "status": "collected" if parsed else "empty",
+        "rows": len(parsed),
+        "file": text_name,
+        "raw_import": raw_rel,
+        "normalized_import": norm_rel,
+        "source": "manual_import",
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "imported_at": datetime.now().isoformat(),
+    }
+    manifest.setdefault("evidence_sources", [])
+    if "manual_import" not in manifest["evidence_sources"]:
+        manifest["evidence_sources"].append("manual_import")
+    _save_manifest(session_path, manifest)
+
+    if background_tasks is not None:
+        def run_reanalysis():
+            try:
+                HashingModule(output_dir=session_path).hash_evidence()
+                AnalysisModule(output_dir=session_path).analyze()
+                rm = ReportingModule(output_dir=session_path)
+                rm.file_flags = get_file_flags(session_id)
+                rm.generate_all()
+            except Exception as e:
+                print(f"[!] Import reanalysis failed: {e}")
+        background_tasks.add_task(run_reanalysis)
+
+    return {
+        "status": "imported",
+        "type": import_type,
+        "rows": len(parsed),
+        "raw_file": raw_rel,
+        "normalized_file": norm_rel,
+        "message": "Import saved as evidence and reanalysis queued.",
+    }
+
 @app.get("/api/records/{device_id}/{session_id}/search")
 def search_session(device_id: str, session_id: str, q: str = ""):
     if not q.strip():
         raise HTTPException(status_code=400, detail="Query parameter 'q' is required.")
-    evidence_dir = os.path.join("output", device_id, session_id, "evidence")
+    evidence_dir = _session_evidence_dir(device_id, session_id)
     if not os.path.exists(evidence_dir):
         raise HTTPException(status_code=404, detail="Evidence directory not found.")
     results = search_evidence(evidence_dir, q.strip())
@@ -348,7 +543,7 @@ def get_stats():
 
     for device_id, sessions in records.items():
         for s in sessions:
-            session_path = os.path.join("output", device_id, s["session_id"])
+            session_path = _session_path(device_id, s["session_id"])
             analysis_path = os.path.join(session_path, "reports", "analysis.json")
             if os.path.exists(analysis_path):
                 try:
@@ -373,7 +568,7 @@ def get_stats():
 
 def _load_session_analysis(device_id: str, session_id: str) -> dict:
     """Load analysis.json for a session, return {} if missing."""
-    p = os.path.join("output", device_id, session_id, "reports", "analysis.json")
+    p = os.path.join(_session_path(device_id, session_id), "reports", "analysis.json")
     if not os.path.exists(p):
         # Try path from DB
         rec = get_session(session_id)
@@ -406,7 +601,7 @@ def get_device_timeline(device_id: str):
         analysis = _load_session_analysis(device_id, s["session_id"])
         summary  = analysis.get("summary", {})
         flags    = analysis.get("forensic_flags", [])
-        flag_by_sev = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        flag_by_sev = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
         for fl in flags:
             sev = fl.get("severity", "LOW")
             flag_by_sev[sev] = flag_by_sev.get(sev, 0) + 1
@@ -488,7 +683,7 @@ MEDIA_TYPES = {
 
 def _safe_path(device_id: str, session_id: str, rel_path: str = "") -> str:
     """Resolve and validate path stays within session output directory."""
-    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    base = os.path.abspath(_session_evidence_dir(device_id, session_id))
     full = os.path.abspath(os.path.join(base, rel_path.lstrip("/\\"))) if rel_path else base
     if not full.startswith(base):
         raise HTTPException(status_code=403, detail="Access denied.")
@@ -644,17 +839,14 @@ def all_flags_view():
             "ack_by": None, "ack_note": None, "ack_at": None,
         })
 
-    result.sort(key=lambda x: (x["severity"] not in ("HIGH",), x["severity"] != "MEDIUM", x["timestamp"]), reverse=False)
+    sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    result.sort(key=lambda x: (sev_rank.get(x.get("severity", "LOW"), 9), x["timestamp"]))
     return {"flags": result}
 
 @app.post("/api/explorer/{device_id}/{session_id}/regenerate-report")
 def regenerate_report_with_flags(device_id: str, session_id: str, background_tasks: BackgroundTasks):
     """Re-generate the HTML report to bake in the latest investigator file flags."""
-    session_path = os.path.join("output", device_id, session_id)
-    if not os.path.exists(session_path):
-        rec = get_session(session_id)
-        if rec and rec.get("output_dir"):
-            session_path = rec["output_dir"]
+    session_path = _session_path(device_id, session_id)
     if not os.path.exists(session_path):
         raise HTTPException(status_code=404, detail="Session not found.")
 
@@ -673,8 +865,8 @@ def regenerate_report_with_flags(device_id: str, session_id: str, background_tas
 @app.post("/api/reanalyze/{device_id}/{session_id}")
 def reanalyze_session(device_id: str, session_id: str, background_tasks: BackgroundTasks):
     """Re-run analysis + reporting on already-acquired evidence."""
-    session_path = os.path.join("output", device_id, session_id)
-    evidence_path = os.path.join(session_path, "evidence")
+    session_path = _session_path(device_id, session_id)
+    evidence_path = _session_evidence_dir(device_id, session_id)
     if not os.path.exists(evidence_path):
         raise HTTPException(status_code=404, detail="Evidence folder not found. Run acquisition first.")
 
@@ -696,7 +888,7 @@ def reanalyze_session(device_id: str, session_id: str, background_tasks: Backgro
 @app.get("/api/reports/verify/{device_id}/{session_id}")
 def verify_integrity(device_id: str, session_id: str):
     """Re-hash all evidence files and compare against stored hash manifest."""
-    session_path = os.path.join("output", device_id, session_id)
+    session_path = _session_path(device_id, session_id)
     if not os.path.exists(session_path):
         raise HTTPException(status_code=404, detail="Session not found.")
     try:
@@ -720,7 +912,7 @@ def verify_integrity(device_id: str, session_id: str):
 @app.get("/api/reports/view/{device_id}/{session_id}")
 def view_report(device_id: str, session_id: str):
     """Serve the HTML dashboard directly in the browser."""
-    session_path = os.path.join("output", device_id, session_id)
+    session_path = _session_path(device_id, session_id)
     dashboard = os.path.join(session_path, "reports", "dashboard.html")
     if not os.path.exists(dashboard):
         raise HTTPException(status_code=404, detail="Dashboard not found. Acquisition may still be running or failed.")
@@ -729,11 +921,11 @@ def view_report(device_id: str, session_id: str):
 @app.get("/api/reports/download/{device_id}/{session_id}")
 def download_report(device_id: str, session_id: str):
     output_dir = "output"
-    session_path = os.path.join(output_dir, device_id, session_id)
+    session_path = _session_path(device_id, session_id)
     if not os.path.exists(session_path) or not os.path.isdir(session_path):
         raise HTTPException(status_code=404, detail="Record not found.")
         
-    zip_filename = f"{device_id}_{session_id}"
+    zip_filename = f"{_safe_device_dir(device_id)}_{session_id}"
     zip_path = os.path.join(output_dir, zip_filename)
     
     try:
@@ -768,7 +960,7 @@ APP_PATHS = {
 @app.get("/api/explorer/{device_id}/{session_id}/media")
 def list_media_files(device_id: str, session_id: str, kind: str = "all", app: str = ""):
     """Recursively walk evidence directory and return all media files."""
-    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    base = os.path.abspath(_session_evidence_dir(device_id, session_id))
     if not os.path.isdir(base):
         return {"files": []}
     flags = {f["file_path"]: f for f in get_file_flags(session_id)}
@@ -802,7 +994,7 @@ def list_media_files(device_id: str, session_id: str, kind: str = "all", app: st
 @app.get("/api/explorer/{device_id}/{session_id}/allfiles")
 def list_all_files(device_id: str, session_id: str, sort: str = "size", limit: int = 500):
     """Return all files in evidence dir sorted by size (desc) or modified time (desc)."""
-    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    base = os.path.abspath(_session_evidence_dir(device_id, session_id))
     if not os.path.isdir(base):
         return {"files": []}
     flags = {f["file_path"]: f for f in get_file_flags(session_id)}
@@ -838,7 +1030,7 @@ def list_all_files(device_id: str, session_id: str, sort: str = "size", limit: i
 @app.get("/api/explorer/{device_id}/{session_id}/apps")
 def list_app_counts(device_id: str, session_id: str):
     """Return per-app media file counts for the gallery filter bar."""
-    base = os.path.abspath(os.path.join("output", device_id, session_id, "evidence"))
+    base = os.path.abspath(_session_evidence_dir(device_id, session_id))
     if not os.path.isdir(base):
         return {"apps": {}}
     counts = {}
@@ -860,3 +1052,4 @@ app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="localhost", port=8000, reload=True)
+

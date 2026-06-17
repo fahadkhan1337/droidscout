@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DroidScout - Mobile Forensic Toolkit</title>
+    <title>DroidTrace - Mobile Forensic Toolkit</title>
     <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
@@ -31,7 +32,12 @@
             background-color: #0d1117;
             color: #e6edf3;
             min-height: 100vh;
+            font-size: 15px;
         }
+        h2 { font-size: 1.25rem !important; }
+        .brand-mark { font-size: 20px; }
+        .section-panel { will-change: transform, opacity; }
+        .metric-card { will-change: transform, opacity; }
         /* Flat surface — no blur, no gradient */
         .glass {
             background: #161b22;
@@ -78,7 +84,7 @@
             <div class="flex items-center justify-between h-14">
                 <div class="flex items-center gap-2.5">
                     <svg class="w-6 h-6" fill="none" stroke="#58a6ff" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    <span class="font-bold text-lg tracking-tight text-white">Droid<span class="text-darkAccent">Scout</span></span>
+                    <span class="brand-mark font-bold tracking-tight text-white">Droid<span class="text-darkAccent">Trace</span></span>
                 </div>
                 <div class="flex items-center gap-3">
                     <a href="/flags" target="_blank"
@@ -106,7 +112,7 @@
         </section>
 
         <!-- Devices Section -->
-        <section style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
+        <section class="section-panel" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
             <div class="flex items-center justify-between mb-6">
                 <div>
                     <h2 class="text-lg font-semibold text-white">Connected Devices</h2>
@@ -117,6 +123,29 @@
                     Refresh
                 </button>
             </div>
+
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:18px;">
+                <div class="flex flex-col lg:flex-row lg:items-end gap-3">
+                    <div class="flex-1">
+                        <p class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2">Wireless ADB</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-[1fr_110px_auto_auto] gap-2">
+                            <input id="wifiAdbHost" type="text" placeholder="Device IP, e.g. 192.168.1.25"
+                                class="bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-600 text-sm rounded px-3 py-2 focus:outline-none focus:border-sky-500">
+                            <input id="wifiAdbPort" type="number" value="5555" min="1" max="65535"
+                                class="bg-darkSurface border border-slate-700 text-slate-200 placeholder-slate-600 text-sm rounded px-3 py-2 focus:outline-none focus:border-sky-500">
+                            <button id="btnWifiConnect" onclick="connectWifiAdb()"
+                                style="background:#1f6feb;border:1px solid #388bfd;color:white;font-size:13px;padding:8px 12px;border-radius:6px;cursor:pointer;">
+                                Connect
+                            </button>
+                            <button id="btnWifiDisconnect" onclick="disconnectWifiAdb()"
+                                style="background:#21262d;border:1px solid #30363d;color:#8b949e;font-size:13px;padding:8px 12px;border-radius:6px;cursor:pointer;">
+                                Disconnect
+                            </button>
+                        </div>
+                        <p id="wifiAdbMessage" class="text-xs text-slate-500 mt-2">Use Android Wireless debugging or run adb tcpip setup first, then connect by IP and port.</p>
+                    </div>
+                </div>
+            </div>
             
             <div id="devicesContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <!-- Devices injected here -->
@@ -124,7 +153,7 @@
         </section>
 
         <!-- Records Section -->
-        <section style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
+        <section class="section-panel" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;">
             <div class="flex items-center justify-between mb-4">
                 <div>
                     <h2 class="text-lg font-semibold text-white">Acquisition Records</h2>
@@ -302,6 +331,16 @@
     <script>
         const API_BASE = '/api';
 
+        async function readApiResponse(res) {
+            const text = await res.text();
+            if (!text) return {};
+            try {
+                return JSON.parse(text);
+            } catch (_) {
+                return { detail: text };
+            }
+        }
+
         async function updateAdbStatus(status, isRunning) {
             const el = document.getElementById('adbStatus');
             if (isRunning) {
@@ -311,6 +350,17 @@
                 el.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-800/50';
                 el.innerHTML = '<span class="w-2 h-2 mr-1.5 bg-red-400 rounded-full"></span>' + status;
             }
+        }
+
+        function animatePageShell() {
+            if (!window.gsap) return;
+            gsap.from('nav', { y: -18, opacity: 0, duration: 0.45, ease: 'power2.out' });
+            gsap.from('.section-panel', { y: 18, opacity: 0, duration: 0.55, stagger: 0.08, delay: 0.08, ease: 'power2.out' });
+        }
+
+        function animateCards(selector) {
+            if (!window.gsap) return;
+            gsap.from(selector, { y: 14, opacity: 0, duration: 0.35, stagger: 0.035, ease: 'power2.out', overwrite: true });
         }
 
         async function startAdb() {
@@ -331,6 +381,81 @@
                 }
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        function setWifiAdbMessage(text, ok = null) {
+            const el = document.getElementById('wifiAdbMessage');
+            if (!el) return;
+            el.textContent = text;
+            el.className = ok === true ? 'text-xs text-emerald-400 mt-2'
+                : ok === false ? 'text-xs text-red-400 mt-2'
+                : 'text-xs text-slate-500 mt-2';
+        }
+
+        function getWifiAdbTarget() {
+            const host = document.getElementById('wifiAdbHost').value.trim();
+            const port = Number(document.getElementById('wifiAdbPort').value || 5555);
+            if (!host) {
+                setWifiAdbMessage('Enter the device IP address first.', false);
+                return null;
+            }
+            if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                setWifiAdbMessage('Port must be between 1 and 65535.', false);
+                return null;
+            }
+            return { host, port };
+        }
+
+        async function connectWifiAdb() {
+            const target = getWifiAdbTarget();
+            if (!target) return;
+            const btn = document.getElementById('btnWifiConnect');
+            btn.disabled = true;
+            btn.style.opacity = '.65';
+            setWifiAdbMessage(`Connecting to ${target.host}:${target.port}...`);
+            try {
+                const res = await fetch(`${API_BASE}/adb/connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(target)
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || data.message || 'Wireless ADB connection failed.');
+                setWifiAdbMessage(data.message || `Connected to ${target.host}:${target.port}`, true);
+                _devicesLoaded = false;
+                await fetchDevices();
+            } catch (e) {
+                setWifiAdbMessage(e.message || 'Wireless ADB connection failed.', false);
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        }
+
+        async function disconnectWifiAdb() {
+            const target = getWifiAdbTarget();
+            if (!target) return;
+            const btn = document.getElementById('btnWifiDisconnect');
+            btn.disabled = true;
+            btn.style.opacity = '.65';
+            setWifiAdbMessage(`Disconnecting ${target.host}:${target.port}...`);
+            try {
+                const res = await fetch(`${API_BASE}/adb/disconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(target)
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || data.message || 'Wireless ADB disconnect failed.');
+                setWifiAdbMessage(data.message || `Disconnected ${target.host}:${target.port}`, true);
+                _devicesLoaded = false;
+                await fetchDevices();
+            } catch (e) {
+                setWifiAdbMessage(e.message || 'Wireless ADB disconnect failed.', false);
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = '1';
             }
         }
 
@@ -423,6 +548,7 @@
                         </div>
                     </div>
                 `).join('');
+                animateCards('#devicesContainer > div');
             } catch (e) {
                 updateAdbStatus('ADB Stopped/Error', false);
                 if (!_devicesLoaded) {
@@ -510,15 +636,15 @@
                     notes:           document.getElementById(`opt-notes-${device}`)?.value?.trim() ?? "",
                 };
 
-                const res = await fetch(`${API_BASE}/acquire/${device}`, {
+                const res = await fetch(`${API_BASE}/acquire/${encodeURIComponent(device)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(options)
                 });
-                const data = await res.json();
+                const data = await readApiResponse(res);
 
                 if (!res.ok) {
-                    alert('Error: ' + data.detail);
+                    alert('Error: ' + (data.detail || data.message || `HTTP ${res.status}`));
                     resetBtn();
                     return;
                 }
@@ -665,6 +791,7 @@
                     </div>
                 </div>`;
             }).join('');
+            animateCards('#recordsContainer > div');
         }
 
         function filterRecords() {
@@ -1262,6 +1389,7 @@
         }
 
         // Init
+        animatePageShell();
         loadStats();
         fetchDevices();
         fetchRecords();
@@ -1272,3 +1400,4 @@
     </script>
 </body>
 </html>
+

@@ -1,11 +1,12 @@
 """
-reporting.py — DroidScout
+reporting.py — DroidTrace
 Generates JSON, CSV, and an interactive HTML dashboard from analysis data.
 """
 
 import csv
 import json
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 
@@ -87,15 +88,20 @@ class ReportingModule:
 
     def generate_json(self) -> Path:
         """Write a structured forensic JSON report."""
+        coverage = self._acquisition_coverage()
+        chain = self._chain_of_custody()
         report = {
             "report_metadata": {
-                "tool":           "DroidScout v1.0.0",
+                "tool":           "DroidTrace v1.0.0",
                 "generated_at":   datetime.now().isoformat(),
                 "report_type":    "Mobile Forensic Analysis Report",
                 "project":        "Open-Source Mobile Forensic Toolkit — LGU FYP",
                 "student":        "Muhammad Fahad Khan (Fall-2022-072/B)",
             },
             "device_information": self.device_info,
+            "case_metadata":      self.case_meta,
+            "chain_of_custody":   chain,
+            "acquisition_coverage": coverage,
             "evidence_summary":   self.analysis.get("summary", {}),
             "file_categories":    self.analysis.get("file_categories", {}),
             "analysis": {
@@ -103,7 +109,12 @@ class ReportingModule:
                 "recent_activity":  self.analysis.get("recent_activity", {}),
                 "app_artifacts":    self.analysis.get("app_artifacts", {}),
                 "timeline":         self.analysis.get("timeline", {}),
+                "unified_timeline": self.analysis.get("unified_timeline", []),
+                "timeline_clusters": self.analysis.get("timeline_clusters", []),
+                "apk_analysis":     self.analysis.get("apk_analysis", []),
+                "iocs":             self.analysis.get("iocs", {}),
                 "forensic_flags":   self.analysis.get("forensic_flags", []),
+                "forensic_flags_all_count": len(self.analysis.get("forensic_flags_all", [])),
             },
             "integrity": {
                 "algorithm":      self.hash_data.get("algorithm", "SHA-256"),
@@ -129,7 +140,8 @@ class ReportingModule:
         stored_hashes = self.hash_data.get("hashes", {})
 
         fields = ["name", "category", "extension", "size_mb",
-                  "modified_time", "sha256", "path"]
+                  "modified_time", "device_modified_time", "local_acquired_time",
+                  "source", "signature", "entropy", "sha256", "path"]
 
         with open(path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fields)
@@ -148,6 +160,11 @@ class ReportingModule:
                     "extension":     f.get("extension", ""),
                     "size_mb":       f.get("size_mb", 0),
                     "modified_time": f.get("modified_time", ""),
+                    "device_modified_time": f.get("device_modified_time", ""),
+                    "local_acquired_time": f.get("local_acquired_time", ""),
+                    "source":        f.get("source", ""),
+                    "signature":     f.get("signature", {}).get("kind", ""),
+                    "entropy":       f.get("entropy", ""),
                     "sha256":        sha,
                     "path":          f.get("path", ""),
                 })
@@ -225,10 +242,85 @@ class ReportingModule:
             )
         return "\n".join(cards)
 
+    def _acquisition_coverage(self) -> dict:
+        storage = self.manifest.get("storage", [])
+        apps = self.manifest.get("apps", [])
+        communication = self.manifest.get("communication", {})
+        return {
+            "storage": [{"path": s.get("remote_path"), "status": s.get("status"), "files": s.get("files_pulled", 0)} for s in storage],
+            "apps": [{"app": s.get("app"), "path": s.get("remote_path"), "status": s.get("status"), "files": s.get("files_pulled", 0)} for s in apps],
+            "communication": communication,
+            "evidence_sources": self.manifest.get("evidence_sources", ["adb"]),
+            "limitations": [
+                "Non-root logical acquisition cannot access protected app-private data.",
+                "Android 16 may block SMS and call-log access unless data is imported or collected through an allowed role/app path.",
+            ],
+        }
+
+    def _chain_of_custody(self) -> dict:
+        return {
+            "case_number": self.case_meta.get("case_number", ""),
+            "investigator": self.case_meta.get("investigator", ""),
+            "notes": self.case_meta.get("notes", ""),
+            "acquisition_time": self.manifest.get("acquisition_time", ""),
+            "report_generated_at": datetime.now().isoformat(),
+            "tool": self.manifest.get("tool", "DroidTrace v1.0.0"),
+            "hash_algorithm": self.hash_data.get("algorithm", "SHA-256"),
+            "total_hashed": self.hash_data.get("total_files", 0),
+            "hash_manifest_generated_at": self.hash_data.get("generated_at", ""),
+            "file_metadata": self.manifest.get("file_metadata", {}),
+        }
+
+    def _coverage_html(self) -> str:
+        coverage = self._acquisition_coverage()
+        rows = []
+        for item in coverage.get("storage", []):
+            rows.append(("Storage", item.get("path", ""), item.get("status", ""), item.get("files", 0)))
+        for item in coverage.get("apps", []):
+            rows.append((f"App: {item.get('app','')}", item.get("path", ""), item.get("status", ""), item.get("files", 0)))
+        for name, item in coverage.get("communication", {}).items():
+            rows.append((f"Communication: {name}", item.get("source", "adb"), item.get("status", ""), item.get("rows", 0)))
+        if not rows:
+            return '<div class="empty">No acquisition coverage data available</div>'
+        body = "".join(
+            f"<tr><td>{escape(str(kind))}</td><td class=\"mono trunc\">{escape(str(path))}</td>"
+            f"<td><span class=\"cbadge\">{escape(str(status))}</span></td><td class=\"mono\">{count}</td></tr>"
+            for kind, path, status, count in rows
+        )
+        return '<table class="dtable"><thead><tr><th>Source</th><th>Path/Method</th><th>Status</th><th>Items</th></tr></thead><tbody>' + body + '</tbody></table>'
+
     def _flags_html(self) -> str:
         flags = self.analysis.get("forensic_flags", [])
         if not flags:
             return '<div class="empty">No forensic flags detected</div>'
+        grouped_new: dict = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": []}
+        for fl in flags:
+            grouped_new.setdefault(fl.get("severity", "LOW"), []).append(fl)
+        rows_new = []
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+            for fl in grouped_new.get(sev, []):
+                key = fl.get("type", "") + "::" + (fl.get("file") or "")
+                reasons = fl.get("reasons", [])
+                reason_html = "".join(
+                    f'<div style="font-size:10px;color:var(--t3);margin-top:2px;">- {escape(str(r))}</div>'
+                    for r in reasons[:3]
+                )
+                action = fl.get("recommended_action", "")
+                score = fl.get("score", "")
+                fpath = escape(fl.get("file", "")) if fl.get("file") else ""
+                rows_new.append(
+                    f'<div class="flag-row" data-fkey="{escape(key)}">'
+                    f'<span class="fbadge {sev}">{sev}</span>'
+                    f'<div style="flex:1;min-width:0">'
+                    f'<div class="ftext">{escape(fl.get("type",""))} | score {score} | {escape(fl.get("description",""))}</div>'
+                    f'{"<div class=fpath>" + fpath + "</div>" if fpath else ""}'
+                    f'{reason_html}'
+                    f'{"<div style=\"font-size:10px;color:var(--blu);margin-top:3px;\">Action: " + escape(action) + "</div>" if action else ""}'
+                    f'</div>'
+                    f'<button class="ack-btn" onclick="toggleAck(this,\'{key.replace(chr(39), "")}\')">Reviewed</button>'
+                    f'</div>'
+                )
+        return "\n".join(rows_new)
         grouped: dict = {"HIGH": [], "MEDIUM": [], "LOW": []}
         for fl in flags:
             grouped.setdefault(fl.get("severity", "LOW"), []).append(fl)
@@ -384,8 +476,9 @@ class ReportingModule:
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>DroidScout — {case_number} — Forensic Report</title>
+<title>DroidTrace — {case_number} — Forensic Report</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 :root{{
@@ -407,7 +500,7 @@ html{{scroll-behavior:smooth}}
 body{{
   background:var(--bg);color:var(--t1);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-  font-size:13px;line-height:1.55;
+  font-size:20px;line-height:1.75;
 }}
 ::-webkit-scrollbar{{width:5px;height:5px}}
 ::-webkit-scrollbar-track{{background:transparent}}
@@ -427,25 +520,25 @@ body{{
   border-right:1px solid var(--bd);
   margin-right:20px;
 }}
-.brand-name{{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--t1)}}
+.brand-name{{font-size:30px;font-weight:800;letter-spacing:0;color:var(--t1)}}
 .brand-name em{{color:var(--acc);font-style:normal}}
 .brand-tag{{
-  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
-  color:var(--acc);border:1px solid var(--acc);padding:2px 6px;
+  font-size:14px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--acc);border:1px solid var(--acc);padding:4px 10px;
 }}
 .banner-meta{{
   display:flex;align-items:center;gap:32px;flex:1;
-  font-size:11px;color:var(--t2);
+  font-size:17px;color:var(--t2);
 }}
 .bm-item{{display:flex;flex-direction:column;gap:1px;padding:10px 0}}
-.bm-label{{font-size:9px;font-weight:700;text-transform:uppercase;
+.bm-label{{font-size:14px;font-weight:700;text-transform:uppercase;
            letter-spacing:1px;color:var(--t3)}}
-.bm-val{{color:var(--t1);font-family:var(--mono);font-size:12px}}
+.bm-val{{color:var(--t1);font-family:var(--mono);font-size:17px}}
 .banner-actions{{display:flex;align-items:center;gap:8px;padding:10px 0;margin-left:auto}}
 .btn-outline{{
   display:inline-flex;align-items:center;gap:5px;
-  padding:5px 12px;border:1px solid var(--bd);color:var(--t2);
-  font-size:11px;font-weight:600;text-decoration:none;
+  padding:6px 14px;border:1px solid var(--bd);color:var(--t2);
+  font-size:14px;font-weight:600;text-decoration:none;
   transition:.15s;cursor:pointer;background:transparent;
 }}
 .btn-outline:hover{{border-color:var(--acc);color:var(--acc)}}
@@ -455,17 +548,17 @@ body{{
 
 /* ─── LEFT SIDEBAR / TOC ─────────────────────────────────────────── */
 .sidebar{{
-  width:200px;flex-shrink:0;
+  width:230px;flex-shrink:0;
   background:var(--s1);border-right:1px solid var(--bd);
   position:sticky;top:57px;height:calc(100vh - 57px);
   overflow-y:auto;padding:16px 0;
 }}
 .toc-head{{
-  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  font-size:14px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
   color:var(--t3);padding:0 16px 8px;
 }}
 .toc-link{{
-  display:block;padding:5px 16px;font-size:12px;color:var(--t2);
+  display:block;padding:10px 18px;font-size:18px;color:var(--t2);
   text-decoration:none;border-left:2px solid transparent;
   transition:.12s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }}
@@ -474,18 +567,19 @@ body{{
 .toc-sep{{height:1px;background:var(--bd);margin:6px 16px}}
 
 /* ─── MAIN CONTENT ───────────────────────────────────────────────── */
-.main{{flex:1;padding:28px 32px;overflow-x:hidden}}
+.main{{flex:1;padding:34px 40px;overflow-x:hidden}}
 
 /* ─── SECTION ────────────────────────────────────────────────────── */
-.section{{margin-bottom:36px}}
+.section{{margin-bottom:44px}}
+.section,.metric,.ch-panel,.kv,.flag-row{{will-change:transform,opacity}}
 .sec-hd{{
   display:flex;align-items:baseline;gap:10px;
   border-bottom:1px solid var(--bd);padding-bottom:8px;margin-bottom:16px;
 }}
-.sec-num{{font-size:10px;font-weight:700;color:var(--acc);font-family:var(--mono);width:20px}}
-.sec-title{{font-size:12px;font-weight:700;text-transform:uppercase;
+.sec-num{{font-size:15px;font-weight:700;color:var(--acc);font-family:var(--mono);width:32px}}
+.sec-title{{font-size:20px;font-weight:700;text-transform:uppercase;
             letter-spacing:1px;color:var(--t2)}}
-.sec-count{{font-size:11px;color:var(--t3);margin-left:auto}}
+.sec-count{{font-size:17px;color:var(--t3);margin-left:auto}}
 
 /* ─── METRICS ROW ────────────────────────────────────────────────── */
 .metrics{{display:flex;gap:0;border:1px solid var(--bd)}}
@@ -493,24 +587,24 @@ body{{
   flex:1;padding:16px 20px;border-right:1px solid var(--bd);
 }}
 .metric:last-child{{border-right:none}}
-.m-val{{font-size:26px;font-weight:800;color:var(--t1);line-height:1;font-family:var(--mono)}}
-.m-label{{font-size:11px;color:var(--t2);margin-top:4px}}
-.m-sub{{font-size:10px;color:var(--t3);margin-top:2px}}
+.m-val{{font-size:44px;font-weight:800;color:var(--t1);line-height:1;font-family:var(--mono)}}
+.m-label{{font-size:18px;color:var(--t2);margin-top:6px}}
+.m-sub{{font-size:16px;color:var(--t3);margin-top:3px}}
 
 /* ─── DATA TABLE ─────────────────────────────────────────────────── */
-.dtable{{width:100%;border-collapse:collapse;font-size:12px}}
+.dtable{{width:100%;border-collapse:collapse;font-size:18px}}
 .dtable th{{
-  text-align:left;padding:8px 12px;
+  text-align:left;padding:11px 16px;
   background:var(--s2);color:var(--t3);font-weight:700;
-  font-size:10px;text-transform:uppercase;letter-spacing:.8px;
+  font-size:16px;text-transform:uppercase;letter-spacing:.8px;
   border-bottom:1px solid var(--bd);border-top:1px solid var(--bd);
 }}
 .dtable td{{
-  padding:7px 12px;border-bottom:1px solid var(--bd2);
+  padding:13px 18px;border-bottom:1px solid var(--bd2);
   color:var(--t1);vertical-align:top;
 }}
 .dtable tbody tr:hover td{{background:var(--s2)}}
-.mono{{font-family:var(--mono);font-size:11px;color:var(--t2)}}
+.mono{{font-family:var(--mono);font-size:17px;color:var(--t2)}}
 .trunc{{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 
 /* ─── KEY-VALUE GRID ─────────────────────────────────────────────── */
@@ -521,8 +615,8 @@ body{{
   display:flex;justify-content:space-between;align-items:center;
   padding:9px 14px;background:var(--s1);gap:12px;
 }}
-.k{{font-size:11px;color:var(--t3);font-weight:600;white-space:nowrap}}
-.v{{font-family:var(--mono);font-size:11px;color:var(--t1);
+.k{{font-size:17px;color:var(--t3);font-weight:600;white-space:nowrap}}
+.v{{font-family:var(--mono);font-size:17px;color:var(--t1);
     text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}}
 
 /* ─── CHARTS ─────────────────────────────────────────────────────── */
@@ -530,7 +624,7 @@ body{{
             border:1px solid var(--bd);margin-bottom:1px}}
 @media(max-width:900px){{.chart-row{{grid-template-columns:1fr}}}}
 .ch-panel{{background:var(--s1);padding:16px}}
-.ch-label{{font-size:10px;font-weight:700;text-transform:uppercase;
+.ch-label{{font-size:15px;font-weight:700;text-transform:uppercase;
            letter-spacing:.8px;color:var(--t3);margin-bottom:12px}}
 .ch-wrap{{position:relative;height:240px}}
 
@@ -543,16 +637,17 @@ body{{
 .flag-row.ack{{opacity:.45}}
 .flag-row.ack .ftext{{text-decoration:line-through;color:var(--t3)}}
 .fbadge{{
-  font-size:9px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;
-  padding:3px 7px;text-align:center;flex-shrink:0;min-width:60px;
+  font-size:15px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;
+  padding:6px 12px;text-align:center;flex-shrink:0;min-width:90px;
 }}
+.fbadge.CRITICAL{{background:#3a0b20;color:#ff7bba;border:1px solid #7a1744}}
 .fbadge.HIGH{{background:#2d0f0f;color:var(--red);border:1px solid #5a1a1a}}
 .fbadge.MEDIUM{{background:#2e2200;color:#e3b341;border:1px solid #6a4f00}}
 .fbadge.LOW{{background:#0d1f3e;color:var(--blu);border:1px solid #1f4176}}
-.ftext{{font-size:12px;color:var(--t1)}}
-.fpath{{font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:3px;word-break:break-all}}
+.ftext{{font-size:18px;color:var(--t1)}}
+.fpath{{font-family:var(--mono);font-size:16px;color:var(--t3);margin-top:4px;word-break:break-all}}
 .ack-btn{{
-  flex-shrink:0;margin-left:auto;font-size:10px;font-weight:600;padding:2px 8px;
+  flex-shrink:0;margin-left:auto;font-size:15px;font-weight:600;padding:6px 14px;
   border:1px solid #30363d;color:#484f58;background:transparent;cursor:pointer;
   white-space:nowrap;transition:.15s;
 }}
@@ -561,34 +656,34 @@ body{{
 .flag-row.ack .ack-btn:hover{{border-color:#f85149;color:#f85149}}
 
 /* ─── PACKAGES ───────────────────────────────────────────────────── */
-.pkg-table{{width:100%;border-collapse:collapse;font-size:11px}}
-.pkg-table td{{padding:4px 10px;border-bottom:1px solid var(--bd2);font-family:var(--mono)}}
+.pkg-table{{width:100%;border-collapse:collapse;font-size:17px}}
+.pkg-table td{{padding:7px 14px;border-bottom:1px solid var(--bd2);font-family:var(--mono)}}
 .pkg-table tr:hover td{{background:var(--s2)}}
 .pkg-3p{{color:var(--acc)}}
 
 /* ─── HASH ───────────────────────────────────────────────────────── */
 .hash-ok{{
   display:flex;align-items:center;gap:10px;
-  padding:10px 14px;margin-bottom:14px;
+  padding:14px 18px;margin-bottom:14px;
   background:var(--s2);border-left:3px solid var(--grn);
-  font-size:12px;
+  font-size:18px;
 }}
-.hash-row{{padding:8px 0;border-bottom:1px solid var(--bd2)}}
-.hr-file{{font-size:11px;color:var(--t3);margin-bottom:3px}}
-.hr-hash{{font-family:var(--mono);font-size:11px;color:var(--grn);word-break:break-all}}
+.hash-row{{padding:12px 0;border-bottom:1px solid var(--bd2)}}
+.hr-file{{font-size:17px;color:var(--t3);margin-bottom:3px}}
+.hr-hash{{font-family:var(--mono);font-size:16px;color:var(--grn);word-break:break-all}}
 
 /* ─── LOG ────────────────────────────────────────────────────────── */
 .log-line{{
   display:flex;gap:10px;align-items:baseline;
-  padding:4px 0;border-bottom:1px solid var(--bd2);font-size:11px;
+  padding:8px 0;border-bottom:1px solid var(--bd2);font-size:17px;
 }}
-.log-ts{{font-family:var(--mono);color:var(--t3);flex-shrink:0;font-size:10px;width:130px}}
+.log-ts{{font-family:var(--mono);color:var(--t3);flex-shrink:0;font-size:16px;width:170px}}
 .log-msg{{color:var(--t2)}}
 
 /* ─── TABS ───────────────────────────────────────────────────────── */
 .tabs{{display:flex;border-bottom:1px solid var(--bd);margin-bottom:14px}}
 .tab{{
-  padding:7px 16px;cursor:pointer;font-size:11px;font-weight:600;
+  padding:12px 22px;cursor:pointer;font-size:17px;font-weight:600;
   color:var(--t3);border-bottom:2px solid transparent;margin-bottom:-1px;
   text-transform:uppercase;letter-spacing:.5px;transition:.12s;
 }}
@@ -597,20 +692,20 @@ body{{
 .tab-pane{{display:none}}.tab-pane.active{{display:block}}
 
 /* ─── CAT BADGE ──────────────────────────────────────────────────── */
-.cbadge{{font-size:10px;font-weight:600;padding:1px 6px;
+.cbadge{{font-size:13px;font-weight:600;padding:2px 8px;
          background:var(--s2);border:1px solid var(--bd);color:var(--t2)}}
 
 /* ─── SCROLLBOX ──────────────────────────────────────────────────── */
 .scrollbox{{max-height:260px;overflow-y:auto}}
 
 /* ─── EMPTY ──────────────────────────────────────────────────────── */
-.empty{{color:var(--t3);font-size:12px;padding:18px 0;text-align:center}}
+.empty{{color:var(--t3);font-size:18px;padding:22px 0;text-align:center}}
 
 /* ─── FOOTER ─────────────────────────────────────────────────────── */
 .footer{{
-  border-top:1px solid var(--bd);margin-top:20px;padding:18px 32px;
+  border-top:1px solid var(--bd);margin-top:20px;padding:20px 32px;
   display:flex;align-items:center;justify-content:space-between;
-  font-size:11px;color:var(--t3);
+  font-size:16px;color:var(--t3);
 }}
 .footer strong{{color:var(--t2)}}
 
@@ -646,7 +741,7 @@ body{{
 <div class="banner">
   <div class="banner-brand">
     <div>
-      <div class="brand-name">Droid<em>Scout</em></div>
+      <div class="brand-name">Droid<em>Trace</em></div>
       <div class="brand-tag">Forensic Report</div>
     </div>
   </div>
@@ -722,12 +817,23 @@ body{{
     <div class="kv"><span class="k">Acquired At</span><span class="v">{acq_time[:19] if acq_time != 'N/A' else 'N/A'}</span></div>
     <div class="kv"><span class="k">Duration</span><span class="v">{acq_duration}s</span></div>
     <div class="kv"><span class="k">Report Generated</span><span class="v">{gen_time}</span></div>
-    <div class="kv"><span class="k">Tool Version</span><span class="v">DroidScout v1.0.0</span></div>
+    <div class="kv"><span class="k">Tool Version</span><span class="v">DroidTrace v1.0.0</span></div>
   </div>
   {f'<div style="margin-top:10px;padding:10px 14px;background:var(--s2);border-left:3px solid var(--acc);font-size:12px;color:var(--t1)"><span style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px;">Notes</span>{notes}</div>' if notes else ''}
 </section>
 
 <!-- §2 Device Information -->
+<section class="section" id="s-coverage">
+  <div class="sec-hd">
+    <span class="sec-num">01A</span>
+    <span class="sec-title">Acquisition Coverage</span>
+  </div>
+  {self._coverage_html()}
+  <div style="margin-top:10px;padding:10px 14px;background:var(--s2);border-left:3px solid var(--acc);font-size:12px;color:var(--t2)">
+    Non-root logical acquisition cannot access protected app-private data. Android 16 may block SMS and call-log access; DroidTrace records that status and supports manual import as evidence.
+  </div>
+</section>
+
 <section class="section" id="s-device">
   <div class="sec-hd">
     <span class="sec-num">02</span>
@@ -887,7 +993,7 @@ body{{
 </div><!-- /layout -->
 
 <footer class="footer">
-  <span><strong>DroidScout v1.0.0</strong> — Open-Source Mobile Forensic Toolkit</span>
+  <span><strong>DroidTrace v1.0.0</strong> — Open-Source Mobile Forensic Toolkit</span>
   <span>LGU Final Year Project — Muhammad Fahad Khan (Fall-2022-072/B)</span>
 </footer>
 
@@ -1005,6 +1111,11 @@ async function toggleAck(btn, flagKey) {{
 }}
 
 loadAcks();
+if (window.gsap) {{
+  gsap.from('.banner', {{y:-16, opacity:0, duration:.4, ease:'power2.out'}});
+  gsap.from('.sidebar,.section', {{y:14, opacity:0, duration:.5, stagger:.045, delay:.08, ease:'power2.out'}});
+  gsap.from('.metric', {{y:10, opacity:0, duration:.35, stagger:.04, delay:.18, ease:'power2.out'}});
+}}
 </script>
 </body>
 </html>"""
@@ -1021,7 +1132,7 @@ loadAcks();
     def generate_all(self) -> dict:
         """Load data and produce all three report formats."""
         print(f"\n{'='*60}")
-        print("  DroidScout  —  Reporting Module")
+        print("  DroidTrace  —  Reporting Module")
         print(f"{'='*60}\n")
 
         self.load_data()
@@ -1043,3 +1154,4 @@ loadAcks();
             "csv":       str(csv_path),
             "html":      str(html_path),
         }
+

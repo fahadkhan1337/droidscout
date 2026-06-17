@@ -3,18 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>DroidScout — Device Timeline</title>
+<title>DroidTrace — Device Timeline</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.5}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.55}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
 
 /* Header */
 .hdr{background:#161b22;border-bottom:2px solid #e3b341;padding:0 24px;display:flex;align-items:center;gap:14px;height:52px;position:sticky;top:0;z-index:50}
-.brand{font-size:15px;font-weight:800;color:#e6edf3}
+.brand{font-size:18px;font-weight:800;color:#e6edf3}
 .brand em{color:#e3b341;font-style:normal}
 .hdr-sep{width:1px;height:24px;background:#30363d}
 .hdr-device{font-size:12px;color:#8b949e;font-family:monospace}
@@ -50,7 +51,7 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
 .sess-body{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid #21262d}
 .sess-stat{padding:10px 16px;border-right:1px solid #21262d}
 .sess-stat:last-child{border-right:none}
-.ss-val{font-size:20px;font-weight:800;color:#e6edf3;font-family:monospace;line-height:1}
+.ss-val{font-size:22px;font-weight:800;color:#e6edf3;font-family:monospace;line-height:1}
 .ss-val.flag-val{color:#f85149}
 .ss-val.clean-val{color:#3fb950}
 .ss-lbl{font-size:10px;color:#484f58;margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
@@ -108,7 +109,7 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
     <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
     Back
   </a>
-  <div class="brand">Droid<em>Scout</em></div>
+  <div class="brand">Droid<em>Trace</em></div>
   <div class="hdr-sep"></div>
   <div class="hdr-device" id="hdrDevice">Loading…</div>
 </header>
@@ -151,10 +152,36 @@ let trendChart  = null;
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('hdrDevice').textContent = DEVICE;
   document.title = `Timeline — ${DEVICE}`;
+  animateShell();
   await loadTimeline();
 });
 
 // ── Load ─────────────────────────────────────────────────────────────────────
+function animateShell() {
+  if (!window.gsap) return;
+  gsap.from('.hdr', { y: -16, opacity: 0, duration: 0.4, ease: 'power2.out' });
+  gsap.from('.chart-area,.select-hint,#tlContainer', {
+    y: 14,
+    opacity: 0,
+    duration: 0.45,
+    stagger: 0.06,
+    delay: 0.08,
+    ease: 'power2.out'
+  });
+}
+
+function animateTimelineItems() {
+  if (!window.gsap) return;
+  gsap.from('.tl-node', {
+    x: -10,
+    opacity: 0,
+    duration: 0.32,
+    stagger: 0.04,
+    ease: 'power2.out',
+    overwrite: true
+  });
+}
+
 async function loadTimeline() {
   try {
     const r = await fetch(`/api/timeline/${DEVICE}`);
@@ -227,6 +254,7 @@ function renderTimeline() {
     rail.appendChild(node);
   });
   container.appendChild(rail);
+  animateTimelineItems();
 }
 
 // ── Select / Compare ──────────────────────────────────────────────────────────
@@ -326,6 +354,9 @@ function renderComparison(data) {
       <div class="diff-label">Category Changes</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;">${catRows}</div>
     </div>`;
+  if (window.gsap) {
+    gsap.from('#cmpPanel,.diff-card', { y: 12, opacity: 0, duration: 0.32, stagger: 0.04, ease: 'power2.out', overwrite: true });
+  }
 }
 
 // ── Trend chart ───────────────────────────────────────────────────────────────
@@ -376,3 +407,4 @@ function esc(s) {
 </script>
 </body>
 </html>
+

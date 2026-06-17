@@ -62,6 +62,8 @@ class AcquisitionModule:
         self.hashes_dir   = self.output_dir / "hashes"
         self.adb          = ADBHelper(serial)
         self.log_entries  = []
+        self.file_metadata = {}
+        self.communication_status = {}
         self.session_id   = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._status_cb   = status_callback or (lambda msg: None)
 
@@ -77,6 +79,70 @@ class AcquisitionModule:
         self.log_entries.append(entry)
         icons = {"INFO": "[*]", "SUCCESS": "[+]", "WARNING": "[!]", "ERROR": "[-]"}
         print(f"  {icons.get(level, '[*]')} {msg}")
+
+    def _local_rel(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self.evidence_dir)).replace("\\", "/")
+        except ValueError:
+            return str(path).replace("\\", "/")
+
+    def _iso_from_epoch(self, value: str) -> str:
+        try:
+            return datetime.fromtimestamp(float(value)).isoformat()
+        except Exception:
+            return ""
+
+    def _record_local_metadata(self, local_path: Path, remote_path: str = "", source: str = "adb"):
+        try:
+            st = local_path.stat()
+        except OSError:
+            return
+        self.file_metadata[self._local_rel(local_path)] = {
+            "source": source,
+            "remote_path": remote_path,
+            "size_bytes": st.st_size,
+            "device_modified_time": "",
+            "local_acquired_time": datetime.fromtimestamp(st.st_mtime).isoformat(),
+            "metadata_status": "local_fallback",
+        }
+
+    def _capture_remote_metadata(self, remote_root: str, local_root: Path):
+        """
+        Best-effort Android-side metadata capture. Some Android builds restrict
+        shell/find/stat behavior; failures are non-fatal and local timestamps remain.
+        """
+        remote_root = remote_root.rstrip("/")
+        cmd = (
+            f"find '{remote_root}' -type f 2>/dev/null | "
+            "while read f; do stat -c '%n\t%s\t%Y' \"$f\" 2>/dev/null; done"
+        )
+        _, output = self.adb.shell(cmd, timeout=180)
+        rows = 0
+        for line in output.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            remote_path, size, mtime = parts
+            suffix = remote_path[len(remote_root):].lstrip("/")
+            local_path = local_root / suffix
+            if not local_path.exists():
+                continue
+            rel = self._local_rel(local_path)
+            self.file_metadata[rel] = {
+                "source": "adb",
+                "remote_path": remote_path,
+                "size_bytes": int(size) if size.isdigit() else local_path.stat().st_size,
+                "device_modified_time": self._iso_from_epoch(mtime),
+                "local_acquired_time": datetime.fromtimestamp(local_path.stat().st_mtime).isoformat(),
+                "metadata_status": "device_stat",
+            }
+            rows += 1
+        if rows:
+            self._log(f"  -> captured device timestamps for {rows} file(s)", "SUCCESS")
+        else:
+            for fp in local_root.rglob("*"):
+                if fp.is_file():
+                    self._record_local_metadata(fp, source="adb")
 
     # ------------------------------------------------------------------
     # Device verification
@@ -163,6 +229,7 @@ class AcquisitionModule:
 
         if success:
             count = sum(1 for p in local_dest.rglob("*") if p.is_file())
+            self._capture_remote_metadata(remote, local_dest)
             result["status"]       = "success"
             result["files_pulled"] = count
             self._log(f"  -> {count} file(s) pulled from {remote}", "SUCCESS")
@@ -239,6 +306,21 @@ class AcquisitionModule:
     # Step 9 — Contacts / Call logs / SMS
     # ------------------------------------------------------------------
 
+    def _write_comm_result(self, name: str, filename: str, result: dict):
+        output = result.get("output", "")
+        (self.evidence_dir / filename).write_text(output, encoding="utf-8", errors="replace")
+        rows = result.get("rows", output.count("Row:"))
+        status = result.get("status", "collected" if rows else "empty")
+        self.communication_status[name] = {
+            "status": status,
+            "rows": rows,
+            "file": filename,
+            "source": "adb",
+            "error": result.get("error", "")[:500],
+        }
+        level = "SUCCESS" if status == "collected" else ("WARNING" if status in ("empty", "blocked_by_android_policy", "permission_denied") else "ERROR")
+        self._log(f"{filename} saved ({rows} entries, status: {status})", level)
+
     def acquire_communication_data(self):
         print("\n[>] Acquiring communication data (contacts, calls, SMS)...")
 
@@ -251,22 +333,16 @@ class AcquisitionModule:
         self._log(f"sim_info.txt saved (number: {phone_number})", "SUCCESS")
 
         self._status_cb("Querying contacts (granting READ_CONTACTS)...")
-        contacts = self.adb.get_contacts()
-        (self.evidence_dir / "contacts.txt").write_text(contacts, encoding="utf-8", errors="replace")
-        count = contacts.count("Row:")
-        self._log(f"contacts.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+        contacts = self.adb.get_contacts_status()
+        self._write_comm_result("contacts", "contacts.txt", contacts)
 
         self._status_cb("Querying call logs (granting READ_CALL_LOG)...")
-        calls = self.adb.get_call_logs()
-        (self.evidence_dir / "call_logs.txt").write_text(calls, encoding="utf-8", errors="replace")
-        count = calls.count("Row:")
-        self._log(f"call_logs.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+        calls = self.adb.get_call_logs_status()
+        self._write_comm_result("calls", "call_logs.txt", calls)
 
         self._status_cb("Querying SMS (granting READ_SMS)...")
-        sms = self.adb.get_sms()
-        (self.evidence_dir / "sms.txt").write_text(sms, encoding="utf-8", errors="replace")
-        count = sms.count("Row:")
-        self._log(f"sms.txt saved ({count} entries)", "SUCCESS" if count else "WARNING")
+        sms = self.adb.get_sms_status()
+        self._write_comm_result("sms", "sms.txt", sms)
 
     # ------------------------------------------------------------------
     # Master entry point
@@ -327,6 +403,15 @@ class AcquisitionModule:
 
         elapsed = round(time.time() - t0, 2)
 
+        metadata_path = self.evidence_dir / "file_metadata.json"
+        for fp in self.evidence_dir.rglob("*"):
+            if fp.is_file() and self._local_rel(fp) not in self.file_metadata:
+                self._record_local_metadata(fp, source="adb")
+        metadata_path.write_text(json.dumps({
+            "generated_at": datetime.now().isoformat(),
+            "files": self.file_metadata,
+        }, indent=2), encoding="utf-8")
+
         manifest = {
             "tool":              "DroidScout v1.0.0",
             "session_id":        self.session_id,
@@ -335,6 +420,8 @@ class AcquisitionModule:
             "device_info":       device_info,
             "storage":           storage_results,
             "apps":              app_results,
+            "communication":     self.communication_status,
+            "file_metadata":     {"path": str(metadata_path), "total_files": len(self.file_metadata)},
             "log":               self.log_entries,
         }
 

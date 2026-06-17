@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DroidScout Explorer</title>
+<title>DroidTrace Explorer</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script>
 tailwind.config = {
   theme: {
@@ -19,7 +20,7 @@ tailwind.config = {
 </script>
 <style>
   * { box-sizing: border-box; }
-  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; font-size:15px; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
@@ -45,7 +46,7 @@ tailwind.config = {
   #lightboxContent img, #lightboxContent video { max-width:90vw; max-height:80vh; border-radius:8px; object-fit:contain; }
 
   /* File tree */
-  .tree-row { display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:12px; color:#8b949e; transition:background .1s, color .1s; white-space:nowrap; overflow:hidden; }
+  .tree-row { display:flex; align-items:center; gap:6px; padding:5px 9px; border-radius:6px; cursor:pointer; font-size:13px; color:#8b949e; transition:background .1s, color .1s; white-space:nowrap; overflow:hidden; }
   .tree-row:hover { background:#1f2937; color:#e6edf3; }
   .tree-row.selected { background:#1f6feb33; color:#58a6ff; }
   .tree-row.flagged-row { border-left: 2px solid #f0883e; padding-left:6px; }
@@ -62,7 +63,7 @@ tailwind.config = {
   .sev-LOW    { background:#0d1f3e; color:#58a6ff; border-color:#1f4176; }
   .sev-INFO   { background:#161b22; color:#8b949e; border-color:#30363d; }
 
-  .btn { padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid; cursor:pointer; transition:.15s; outline:none; }
+  .btn { padding:7px 14px; border-radius:6px; font-size:13px; font-weight:600; border:1px solid; cursor:pointer; transition:.15s; outline:none; }
   .btn-sky { background:#0c3055; color:#58a6ff; border-color:#1f6feb; }
   .btn-sky:hover { background:#1f6feb; color:#fff; }
   .btn-ghost { background:transparent; color:#8b949e; border-color:#30363d; }
@@ -75,7 +76,7 @@ tailwind.config = {
   .tab-active { background:#1f6feb22; color:#58a6ff; border-color:#1f6feb; }
   .tab { color:#8b949e; border-color:#30363d; background:transparent; }
   .tab:hover { color:#e6edf3; background:#1f2937; border-color:#484f58; }
-  input, select, textarea { background:#161b22; border:1px solid #30363d; color:#e6edf3; border-radius:6px; font-size:12px; padding:6px 10px; outline:none; }
+  input, select, textarea { background:#161b22; border:1px solid #30363d; color:#e6edf3; border-radius:6px; font-size:13px; padding:7px 10px; outline:none; }
   input:focus, select:focus, textarea:focus { border-color:#58a6ff; }
   input::placeholder { color:#484f58; }
 
@@ -283,6 +284,7 @@ const APP_META = {
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('headerDevice').textContent = DEVICE || 'Unknown Device';
   document.getElementById('headerSession').textContent = SESSION || '';
+  animateShell();
   const viewParam = params.get('view') || '';
   const modeParam = params.get('mode') || '';
   const appParam  = params.get('app')  || '';
@@ -300,6 +302,31 @@ window.addEventListener('DOMContentLoaded', async () => {
   // list mode is handled inside setMode → loadListView
   updateFlagCount();
 });
+
+function animateShell() {
+  if (!window.gsap) return;
+  gsap.from('header', { y: -16, opacity: 0, duration: 0.4, ease: 'power2.out' });
+  gsap.from('#galleryView,#listView,#explorerSidebar,#previewPane', {
+    y: 14,
+    opacity: 0,
+    duration: 0.45,
+    stagger: 0.06,
+    delay: 0.08,
+    ease: 'power2.out'
+  });
+}
+
+function animateNodes(selector) {
+  if (!window.gsap) return;
+  gsap.from(selector, {
+    y: 10,
+    opacity: 0,
+    duration: 0.28,
+    stagger: 0.015,
+    ease: 'power2.out',
+    overwrite: true
+  });
+}
 
 // ─── Mode switching ────────────────────────────────────────────────────────────
 let currentListSort = 'size';
@@ -369,6 +396,7 @@ async function loadListView(sort) {
         </td>`;
       tbody.appendChild(tr);
     });
+    animateNodes('#listTableBody tr');
   } catch(e) {
     document.getElementById('listTableBody').innerHTML = `<tr><td colspan="6" style="color:#f85149;padding:12px;">Failed to load.</td></tr>`;
   }
@@ -479,6 +507,7 @@ function renderGallery(files) {
 
     grid.appendChild(card);
   });
+  animateNodes('#galleryGrid .gallery-card');
 }
 
 function setFilter(filter) {
@@ -559,6 +588,7 @@ function renderTree(items, currentPath) {
     };
     tree.appendChild(row);
   });
+  animateNodes('#explorerTree .tree-row');
 }
 
 function selectExplorerFile(item) {
@@ -709,3 +739,4 @@ function fileIcon(ext) {
 </script>
 </body>
 </html>
+
